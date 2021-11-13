@@ -1,0 +1,30 @@
+nebula_add_test(
+    NAME
+        network_utils_test
+    SOURCES
+        NetworkUtilsTest.cpp
+    OBJECTS
+        $<TARGET_OBJECTS:base_obj>
+        $<TARGET_OBJECTS:network_obj>
+        $<TARGET_OBJECTS:fs_obj>
+    LIBRARIES
+        ${THRIFT_LIBRARIES}
+        wangle
+        gtest
+)
+
+
+nebula_add_executable(
+    NAME
+        network_utils_bm
+    SOURCES
+        NetworkUtilsBenchmark.cpp
+    OBJECTS
+        $<TARGET_OBJECTS:base_obj>
+        $<TARGET_OBJECTS:network_obj>
+        $<TARGET_OBJECTS:fs_obj>
+    LIBRARIES
+        wangle
+        follybenchmark
+        boost_regex
+)

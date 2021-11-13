@@ -1,0 +1,13 @@
+nebula_add_test(
+    NAME
+        process_test
+    SOURCES
+        ProcessTest.cpp
+    OBJECTS
+        $<TARGET_OBJECTS:process_obj>
+        $<TARGET_OBJECTS:fs_obj>
+        $<TARGET_OBJECTS:base_obj>
+    LIBRARIES
+        gtest
+        gtest_main
+)
