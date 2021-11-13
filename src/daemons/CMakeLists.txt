@@ -1,0 +1,330 @@
+#[[nebula_add_executable(
+    NAME
+        nebula-graphd
+    SOURCES
+        GraphDaemon.cpp
+    OBJECTS
+        $<TARGET_OBJECTS:filter_obj>
+        $<TARGET_OBJECTS:graph_obj>
+        $<TARGET_OBJECTS:http_client_obj>
+        $<TARGET_OBJECTS:parser_obj>
+        $<TARGET_OBJECTS:network_obj>
+        $<TARGET_OBJECTS:process_obj>
+        $<TARGET_OBJECTS:graph_thrift_obj>
+        $<TARGET_OBJECTS:storage_client>
+        $<TARGET_OBJECTS:storage_thrift_obj>
+        $<TARGET_OBJECTS:meta_client>
+        $<TARGET_OBJECTS:stats_obj>
+        $<TARGET_OBJECTS:time_obj>
+        $<TARGET_OBJECTS:meta_thrift_obj>
+        $<TARGET_OBJECTS:common_thrift_obj>
+        $<TARGET_OBJECTS:thrift_obj>
+        $<TARGET_OBJECTS:schema_obj>
+        $<TARGET_OBJECTS:index_obj>
+        $<TARGET_OBJECTS:ws_obj>
+        $<TARGET_OBJECTS:ws_common_obj>
+        $<TARGET_OBJECTS:dataman_obj>
+        $<TARGET_OBJECTS:meta_gflags_man_obj>
+        $<TARGET_OBJECTS:gflags_man_obj>
+        $<TARGET_OBJECTS:stats_obj>
+        $<TARGET_OBJECTS:charset_obj>
+        $<TARGET_OBJECTS:thread_obj>
+        $<TARGET_OBJECTS:fs_obj>
+        $<TARGET_OBJECTS:base_obj>
+        $<TARGET_OBJECTS:concurrent_obj>
+        $<TARGET_OBJECTS:encryption_obj>
+        $<TARGET_OBJECTS:session_obj>
+        $<TARGET_OBJECTS:permission_obj>
+        $<TARGET_OBJECTS:kvstore_storage_utils_obj>
+        $<TARGET_OBJECTS:convert_time_type_utils_obj>
+    LIBRARIES
+        proxygenhttpserver
+        proxygenlib
+        ${THRIFT_LIBRARIES}
+        wangle
+)
+
+
+nebula_add_executable(
+    NAME
+        nebula-storaged
+    SOURCES
+        StorageDaemon.cpp
+    OBJECTS
+        $<TARGET_OBJECTS:filter_obj>
+        $<TARGET_OBJECTS:storage_server>
+        $<TARGET_OBJECTS:storage_service_handler>
+        $<TARGET_OBJECTS:storage_http_handler>
+        $<TARGET_OBJECTS:kvstore_obj>
+        $<TARGET_OBJECTS:raftex_obj>
+        $<TARGET_OBJECTS:raftex_thrift_obj>
+        $<TARGET_OBJECTS:wal_obj>
+        $<TARGET_OBJECTS:dataman_obj>
+        $<TARGET_OBJECTS:schema_obj>
+        $<TARGET_OBJECTS:index_obj>
+        $<TARGET_OBJECTS:hdfs_helper_obj>
+        $<TARGET_OBJECTS:storage_thrift_obj>
+        $<TARGET_OBJECTS:http_client_obj>
+        $<TARGET_OBJECTS:storage_client>
+        $<TARGET_OBJECTS:meta_client>
+        $<TARGET_OBJECTS:stats_obj>
+        $<TARGET_OBJECTS:time_obj>
+        $<TARGET_OBJECTS:meta_thrift_obj>
+        $<TARGET_OBJECTS:common_thrift_obj>
+        $<TARGET_OBJECTS:thrift_obj>
+        $<TARGET_OBJECTS:meta_gflags_man_obj>
+        $<TARGET_OBJECTS:gflags_man_obj>
+        $<TARGET_OBJECTS:network_obj>
+        $<TARGET_OBJECTS:process_obj>
+        $<TARGET_OBJECTS:ws_obj>
+        $<TARGET_OBJECTS:ws_common_obj>
+        $<TARGET_OBJECTS:thread_obj>
+        $<TARGET_OBJECTS:fs_obj>
+        $<TARGET_OBJECTS:stats_obj>
+        $<TARGET_OBJECTS:base_obj>
+        $<TARGET_OBJECTS:kvstore_storage_utils_obj>
+        $<TARGET_OBJECTS:convert_time_type_utils_obj>
+    LIBRARIES
+        proxygenhttpserver
+        proxygenlib
+        ${ROCKSDB_LIBRARIES}
+        ${THRIFT_LIBRARIES}
+        wangle
+     
+)
+
+]]
+
+
+nebula_add_executable(
+    NAME
+        nebula-metad
+    SOURCES
+        MetaDaemon.cpp
+    OBJECTS
+        $<TARGET_OBJECTS:meta_service_handler>
+        $<TARGET_OBJECTS:meta_http_handler>
+        $<TARGET_OBJECTS:kvstore_obj>
+        $<TARGET_OBJECTS:schema_obj>
+        $<TARGET_OBJECTS:index_obj>
+        $<TARGET_OBJECTS:wal_obj>
+        $<TARGET_OBJECTS:hdfs_helper_obj>
+        $<TARGET_OBJECTS:http_client_obj>
+        $<TARGET_OBJECTS:storage_client>
+        $<TARGET_OBJECTS:storage_thrift_obj>
+        $<TARGET_OBJECTS:meta_client>
+        $<TARGET_OBJECTS:stats_obj>
+        $<TARGET_OBJECTS:time_obj>
+        $<TARGET_OBJECTS:meta_thrift_obj>
+        $<TARGET_OBJECTS:raftex_obj>
+        $<TARGET_OBJECTS:raftex_thrift_obj>
+        $<TARGET_OBJECTS:common_thrift_obj>
+        $<TARGET_OBJECTS:thrift_obj>
+        $<TARGET_OBJECTS:process_obj>
+        $<TARGET_OBJECTS:ws_obj>
+        $<TARGET_OBJECTS:ws_common_obj>
+        $<TARGET_OBJECTS:gflags_man_obj>
+        $<TARGET_OBJECTS:network_obj>
+        $<TARGET_OBJECTS:thread_obj>
+        $<TARGET_OBJECTS:stats_obj>
+        $<TARGET_OBJECTS:charset_obj>
+        $<TARGET_OBJECTS:fs_obj>
+        $<TARGET_OBJECTS:base_obj>
+        $<TARGET_OBJECTS:encryption_obj>
+        $<TARGET_OBJECTS:kvstore_storage_utils_obj>
+    LIBRARIES
+        proxygenhttpserver
+        proxygenlib
+        ${ROCKSDB_LIBRARIES}
+        ${THRIFT_LIBRARIES}
+        wangle
+        /usr/local/lib/k2/libappbase.a
+        /usr/local/lib/k2/libtso_client.a
+        /usr/local/lib/libseastar.a
+        /usr/local/lib/k2/libk23si_client.a 
+        /usr/local/lib/k2/libcpo_client.a 
+        /usr/local/lib/k2/libappbase.a
+        /usr/local/lib/libseastar.a
+        /usr/local/lib/k2/libdto.a 
+        /usr/local/lib/k2/libtransport.a
+        /usr/local/lib/libseastar.a 
+        /usr/local/lib/k2/libconfig.a
+        -lcrc32c 
+        /usr/local/lib/k2/libcommon.a
+        /usr/local/lib/libseastar.a 
+        /usr/lib/x86_64-linux-gnu/libboost_program_options.so 
+        /usr/lib/x86_64-linux-gnu/libboost_thread.so 
+        /usr/lib/x86_64-linux-gnu/libboost_chrono.so 
+        /usr/lib/x86_64-linux-gnu/libboost_date_time.so 
+        /usr/lib/x86_64-linux-gnu/libboost_atomic.so 
+        /usr/lib/x86_64-linux-gnu/libcares.so 
+        /usr/lib/x86_64-linux-gnu/libcryptopp.so 
+        /usr/lib/x86_64-linux-gnu/liblz4.so 
+          -lpthread 
+          -ldl
+          /usr/lib/x86_64-linux-gnu/libgnutls.so
+           -latomic 
+           /usr/lib/x86_64-linux-gnu/libsctp.so 
+           /usr/lib/x86_64-linux-gnu/libprotobuf.so
+            -lrt 
+            /usr/lib/x86_64-linux-gnu/libyaml-cpp.so
+            /usr/lib/x86_64-linux-gnu/libibverbs.so 
+            /usr/lib/x86_64-linux-gnu/libhwloc.so 
+            /usr/lib/x86_64-linux-gnu/libnuma.so 
+            /usr/local/lib/libfmt.a 
+            /usr/local/lib/libfmt.a 
+            /usr/local/lib/libseastar.a 
+)
+target_link_libraries( 
+    nebula-metad
+    k2::config
+    k2::dto 
+    k2::dto             
+    k2::appbase 
+    k2::k23si_client 
+    k2::cpo_client 
+    k2::transport 
+    Seastar::seastar
+ #[[   folly
+    glog
+    gflags
+    boost_context
+    boost_system
+    event
+    double-conversion
+    s2
+    ${OPENSSL_SSL_LIBRARY}
+    ${OPENSSL_CRYPTO_LIBRARY}
+    ${KRB5_LIBRARIES}
+    ${COMPRESSION_LIBRARIES}
+    ${JEMALLOC_LIB}
+    ${LIBUNWIND_LIBRARIES}
+    keyutils
+    resolv
+    dl
+    ${GETTIME_LIB}
+    ${libatomic_link_flags}
+    -pthread
+    ${COVERAGES}
+    proxygenhttpserver
+    proxygenlib
+    ${ROCKSDB_LIBRARIES}
+    ${THRIFT_LIBRARIES}
+    wangle]]
+    )
+
+#[[
+
+#include_directories(/usr/local/include/k2)
+#link_directories(/usr/local/lib/k2)
+MESSAGE( STATUS "k2 library?")
+
+message(STATUS "add lib in  new way\n\n\n")
+
+add_executable(nebula-metad 
+            ./MetaDaemon.cpp 
+            $<TARGET_OBJECTS:meta_service_handler>
+            $<TARGET_OBJECTS:meta_http_handler>
+            $<TARGET_OBJECTS:kvstore_obj>
+            $<TARGET_OBJECTS:schema_obj>
+            $<TARGET_OBJECTS:index_obj>
+            $<TARGET_OBJECTS:wal_obj>
+            $<TARGET_OBJECTS:hdfs_helper_obj>
+            $<TARGET_OBJECTS:http_client_obj>
+            $<TARGET_OBJECTS:storage_client>
+            $<TARGET_OBJECTS:storage_thrift_obj>
+            $<TARGET_OBJECTS:meta_client>
+            $<TARGET_OBJECTS:stats_obj>
+            $<TARGET_OBJECTS:time_obj>
+            $<TARGET_OBJECTS:meta_thrift_obj>
+            $<TARGET_OBJECTS:raftex_obj>
+            $<TARGET_OBJECTS:raftex_thrift_obj>
+            $<TARGET_OBJECTS:common_thrift_obj>
+            $<TARGET_OBJECTS:thrift_obj>
+            $<TARGET_OBJECTS:process_obj>
+            $<TARGET_OBJECTS:ws_obj>
+            $<TARGET_OBJECTS:ws_common_obj>
+            $<TARGET_OBJECTS:gflags_man_obj>
+            $<TARGET_OBJECTS:network_obj>
+            $<TARGET_OBJECTS:thread_obj>
+            $<TARGET_OBJECTS:stats_obj>
+            $<TARGET_OBJECTS:charset_obj>
+            $<TARGET_OBJECTS:fs_obj>
+            $<TARGET_OBJECTS:base_obj>
+            $<TARGET_OBJECTS:encryption_obj>
+            $<TARGET_OBJECTS:kvstore_storage_utils_obj>
+)
+
+target_link_libraries( 
+    nebula-metad
+#[[    k2::config
+    tso_client 
+    k2::dto 
+    k2::dto             
+    k2::appbase 
+    k2::k23si_client 
+    k2::cpo_client 
+    k2::transport 
+    Seastar::seastar
+    folly
+    glog
+    gflags
+    boost_context
+    boost_system
+    event
+    double-conversion
+    s2
+    ${OPENSSL_SSL_LIBRARY}
+    ${OPENSSL_CRYPTO_LIBRARY}
+    ${KRB5_LIBRARIES}
+    ${COMPRESSION_LIBRARIES}
+    ${JEMALLOC_LIB}
+    ${LIBUNWIND_LIBRARIES}
+    keyutils
+    resolv
+    dl
+    ${GETTIME_LIB}
+    ${libatomic_link_flags}
+    -pthread
+    ${COVERAGES}
+    proxygenhttpserver
+    proxygenlib
+    ${ROCKSDB_LIBRARIES}
+    ${THRIFT_LIBRARIES}
+    wangle
+    )
+]]
+
+
+
+
+message("new\n\n\n")
+
+#[[
+install(
+    TARGETS
+        nebula-graphd
+    DESTINATION
+        bin
+    COMPONENT
+        graph
+)
+
+install(
+    TARGETS
+        nebula-storaged
+    DESTINATION
+        bin
+    COMPONENT
+        storage
+)
+
+install(
+    TARGETS
+        nebula-metad
+    DESTINATION
+        bin
+    COMPONENT
+        meta
+)
+]]
