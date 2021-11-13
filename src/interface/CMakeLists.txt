@@ -1,0 +1,29 @@
+
+if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    add_compile_options(-Wno-maybe-uninitialized)
+endif()
+
+set(THRIFT1 ${Fbthrift_BIN})
+set(THRIFT_TEMPLATES ${Fbthrift_INCLUDE_DIR}/thrift/templates)
+include(ThriftGenerate)
+
+# Target object name : common_thrift_obj
+thrift_generate("common" "" ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} "interface")
+
+# Target object name : graph_thrift_obj
+thrift_generate("graph" "GraphService" ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} "interface")
+
+# Target object name : raftex_thrift_obj
+thrift_generate("raftex" "RaftexService" ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} "interface")
+
+# Target object name : storage_thrift_obj
+thrift_generate("storage" "StorageService" ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} "interface")
+
+# Target object name : meta_thrift_obj
+thrift_generate("meta" "MetaService" ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} "interface")
+
+
+add_custom_target(
+    clean-interface
+    COMMAND "rm" "-fr" "gen-cpp2" "gen-java" "gen-go" "gen-py"
+)
