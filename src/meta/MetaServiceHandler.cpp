@@ -54,19 +54,133 @@
 #include "meta/processors/configMan/ListConfigsProcessor.h"
 #include "meta/processors/jobMan/AdminJobProcessor.h"
 
+#include "k2_includes.h"
+#include "k2_queue_defs.h"
+
+
+
+
 #define RETURN_FUTURE(processor) \
     auto f = processor->getFuture(); \
     processor->process(req); \
     return f;
+
 
 namespace nebula {
 namespace meta {
 
 folly::Future<cpp2::ExecResp>
 MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq& req) {
+    
+    LOG(ERROR) << "Future create space!";
+    auto properties = req.get_properties();
+    std::string mySpaceName =  properties.get_space_name();
+
+    static std::unordered_map<std::string, std::vector<std::string>> name2Eps = {
+    {"test1", {"tcp+k2rpc://0.0.0.0:10000"}},{"test2", {"tcp+k2rpc://0.0.0.0:10001"}},{"test3", {"tcp+k2rpc://0.0.0.0:10002"}}
+};
+    static std::unordered_map<std::string, int32_t> spaceTable;
+
+     bool isRepeated = false;
+    int32_t mySpaceID;
+    std::vector<k2::String> endpoints;
+    std::vector<std::string> stdEndpoints = name2Eps[mySpaceName];
+    for (const std::string& ep : stdEndpoints) {
+            endpoints.emplace_back(ep);
+    }
+        
+        //rangeEnds
+    std::vector<k2::String> rangeEnds;
+    rangeEnds.push_back("");
+
+        //判断name是否出现过
+        if(spaceTable.find(mySpaceName) != spaceTable.end())
+            { //出现过
+                std::cout << "space alerady exist!";
+                isRepeated = true;
+              //  _return.code = ErrorCode::E_EXISTED;
+              //  _return.id.space_id = spaceTable[req.properties.space_name];
+              
+              //  _return.id.__set_space_id( _return.id.space_id);
+              //  return;
+            }
+
+        if (!isRepeated)
+        {
+            mySpaceID = spaceTable.size();
+            std::cout << "\n\n " << "spaceTable.size() "<< spaceTable.size()<< std::endl;
+            mySpaceID++;
+          //  std::cout << "\n\n\n"<< "spaceID" << spaceID << std::endl;
+            spaceTable[mySpaceName] = mySpaceID;
+        }
+
+ 
+    k2graph::MyCollectionCreateRequest myRequest{
+            .req = k2::dto::CollectionCreateRequest{
+                .metadata{
+                    .name = std::to_string(mySpaceID),
+                    .hashScheme = k2::dto::HashScheme::HashCRC32C,
+                    .storageDriver = k2::dto::StorageDriver::K23SI,
+                    .capacity{},
+                    .retentionPeriod = 24h
+                },
+                .clusterEndpoints = std::move(endpoints),
+                .rangeEnds = std::move(rangeEnds)
+            },
+            .prom = new std::promise<k2::Status>()
+        };
+
+
+/*
+         k2graph::pushQ(collectionCreateQ, myRequest);
+         LOG(ERROR) << "After pushQ!";
+*/
+
+
+/*
+         try
+        { //future.get()时可能抛出异常
+            // std::cout << "\n\n\n\nline240\n\n\n\n";
+            std::future<k2::Status> result = request.prom->get_future();
+            k2::Status  status = result.get();
+
+            if (!status.is2xxOK())
+            {
+                K2LOG_I(k2::log::k23si, "fail to create a collection");
+                
+                // return -2;
+                std::cout << status << std::endl;
+              //  _return.code = ErrorCode::E_RPC_FAILURE;
+              //  _return.id.space_id = -1;
+               
+              //  _return.id.__set_space_id( _return.id.space_id);
+              //  return;
+            }
+            else
+            {
+              //  _return.code = ErrorCode::SUCCEEDED;
+              //  _return.id.space_id = spaceTable[req.properties.space_name];
+              //  std::cout << "\n\n _return.id.space_id  " << _return.id.space_id << std::endl;
+             
+             // _return.id.__set_space_id( _return.id.space_id);
+
+
+
+             //   return;
+            }
+            std::cout << "\n\n\n\nline242\n\n\n\n";
+        }
+        catch (...)
+        {
+          //  _return.code = ErrorCode::E_UNKNOWN;
+          //  return;
+        }
+*/
+
     auto* processor = CreateSpaceProcessor::instance(kvstore_);
     RETURN_FUTURE(processor);
 }
+
 
 folly::Future<cpp2::ExecResp>
 MetaServiceHandler::future_dropSpace(const cpp2::DropSpaceReq& req) {
