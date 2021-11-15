@@ -23,10 +23,14 @@
 #   ENABLE_PACK_ONE                 -- Package to one or multi packages
 #
 # CMake version check
-cmake_minimum_required(VERSION 3.5.0)
+#cmake_minimum_required(VERSION 3.5.0)
+
+cmake_minimum_required (VERSION 3.5.0)
+message(STATUS "NEW VERSION")
 
 # Set the project name
-project("Nebula Graph" C CXX)
+#project("Nebula Graph" C CXX)
+project (K2-Nebula VERSION 0.0.1 LANGUAGES CXX)
 
 # Set the project home dir
 set(NEBULA_HOME ${CMAKE_CURRENT_SOURCE_DIR})
@@ -42,9 +46,11 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -no-pie")
 
-set(CMAKE_SKIP_RPATH TRUE)
+#set(CMAKE_SKIP_RPATH TRUE)
 
-option(ENABLE_JEMALLOC "Whether to link jemalloc to all executables" ON)
+
+
+option(ENABLE_JEMALLOC "Whether to link jemalloc to all executables" OFF) #本地修改，和seastar冲突
 option(ENABLE_NATIVE "Whether to build native client" OFF)
 option(ENABLE_CCACHE "Whether to use ccache to speed up compiling" ON)
 option(ENABLE_ASAN "Whether to turn AddressSanitizer ON or OFF" OFF)
@@ -52,13 +58,14 @@ option(ENABLE_TESTING "Whether to turn unit test ON or OFF" ON)
 option(ENABLE_COVERAGE "Whether to turn unit test coverage ON or OFF" OFF)
 option(ENABLE_UBSAN "Whether to turn Undefined Behavior Sanitizer ON or OFF" OFF)
 option(ENABLE_FUZZ_TEST "Whether to turn Fuzz Test ON or OFF" OFF)
-option(ENABLE_WERROR "Whether to error on warnings" ON)
+option(ENABLE_WERROR "Whether to error on warnings" OFF)
 option(ENABLE_STRICT_ALIASING "Whether to turn strict-aliasing ON or OFF" OFF)
 option(ENABLE_TSAN "Whether to turn Thread Sanitizer ON or OFF" OFF)
 option(ENABLE_STATIC_ASAN "Whether directs the GCC driver to link libasan statically" OFF)
 option(ENABLE_STATIC_UBSAN "Whether directs the GCC driver to link libubsan statically" OFF)
 option(ENABLE_PACK_ONE "Whether to package into one" ON)
 option(ENABLE_PCH "Whether to enable use of precompiled header" OFF)
+
 
 message(STATUS "ENABLE_ASAN: ${ENABLE_ASAN}")
 message(STATUS "ENABLE_TESTING: ${ENABLE_TESTING}")
@@ -70,6 +77,7 @@ message(STATUS "ENABLE_STATIC_UBSAN : ${ENABLE_STATIC_UBSAN}")
 message(STATUS "ENABLE_WERROR: ${ENABLE_WERROR}")
 message(STATUS "ENABLE_STRICT_ALIASING: ${ENABLE_STRICT_ALIASING}")
 message(STATUS "ENABLE_PCH: ${ENABLE_PCH}")
+
 
 if (ENABLE_NATIVE)
     message(STATUS "ENABLE_NATIVE is ${ENABLE_NATIVE}")
@@ -84,9 +92,10 @@ if (!CMAKE_CXX_COMPILER)
     message(FATAL_ERROR "No C++ compiler found")
 endif()
 
-set(CMAKE_CXX_STANDARD 14)  # specify the C++ standard
+set(CMAKE_CXX_STANDARD 17)  # specify the C++ standard
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+
+#set(CMAKE_CXX_EXTENSIONS OFF)  ?
 
 # coverage
 if (ENABLE_TESTING AND ENABLE_COVERAGE)
@@ -96,6 +105,11 @@ if (ENABLE_TESTING AND ENABLE_COVERAGE)
 
     set(COVERAGES --coverage)
 endif()
+
+#add_compile_options(-O3 -g  -Wno-sign-compare -Wno-deprecated -Wno-unused-parameter -Wno-type-limits -Wno-unused-function -Wno-char-subscripts -Wno-ignored-qualifiers -Wall -Wextra -march=skylake -mtune=skylake-avx512 -mavx -mavx2 -mxsave -mbmi -mbmi2 -mlzcnt -maes -mpopcnt)
+add_compile_options(-O0 -g  -Wall -Wextra -march=skylake -mtune=skylake-avx512 -mavx -mavx2 -mxsave -mbmi -mbmi2 -mlzcnt -maes -mpopcnt)
+message(STATUS "NEW OPTION\n\n")
+
 
 # To detect if ccache is available
 find_program(ccache_program_found "ccache")
@@ -126,7 +140,7 @@ if(NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
 endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--compress-debug-sections=zlib -Wl,-allow-multiple-definition")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--compress-debug-sections=zlib")
     if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         add_compile_options(-fno-limit-debug-info)
     endif()
@@ -175,15 +189,6 @@ if (GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
         OUTPUT_VARIABLE GIT_INFO_SHA
     )
 endif()
-
-
-find_package(k2 REQUIRED)
-find_package (Seastar REQUIRED)
-find_package (fmt REQUIRED)
-find_package(nlohmann_json REQUIRED)
-find_package (yaml-cpp REQUIRED) 
-
-
 
 if (GIT_INFO_SHA)
     string(REGEX REPLACE "[^0-9a-f]+" "" GIT_INFO_SHA "${GIT_INFO_SHA}")
@@ -242,6 +247,18 @@ message(STATUS "CMAKE_INCLUDE_PATH: " ${INCLUDE_PATH_STR})
 message(STATUS "CMAKE_LIBRARY_PATH: " ${LIBRARY_PATH_STR})
 message(STATUS "CMAKE_PROGRAM_PATH: " ${PROGRAM_PATH_STR})
 
+
+
+find_package(k2 REQUIRED)
+find_package (Seastar REQUIRED)
+find_package (fmt REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package (yaml-cpp REQUIRED) # required for configuration file parsing
+
+MESSAGE(STATUS "k2 find?\n\n\n")
+set(LINK_TYPE "a")
+
+
 find_package(Bzip2 REQUIRED)
 find_package(DoubleConversion REQUIRED)
 find_package(Fatal REQUIRED)
@@ -250,9 +267,9 @@ find_package(Folly REQUIRED)
 find_package(Gflags REQUIRED)
 find_package(Glog REQUIRED)
 find_package(Googletest REQUIRED)
-if(ENABLE_JEMALLOC)
+#[[if(ENABLE_JEMALLOC)
     find_package(Jemalloc REQUIRED)
-endif()
+endif()本地]]
 find_package(Libevent REQUIRED)
 find_package(Mstch REQUIRED)
 find_package(Proxygen REQUIRED)
@@ -280,17 +297,18 @@ else()
     file(REMOVE ${CMAKE_SOURCE_DIR}/src/common/base/Base.h.gch)
 endif()
 
-add_compile_options(-Wall)
+#[[add_compile_options(-Wall)
 add_compile_options(-Wextra)
 add_compile_options(-Wpedantic)
-add_compile_options(-Wunused-parameter)
+add_compile_options(-Wno-unused-parameter)
 add_compile_options(-Wshadow)
 add_compile_options(-Wnon-virtual-dtor)
 add_compile_options(-Woverloaded-virtual)
 add_compile_options(-Wignored-qualifiers)
 if(ENABLE_WERROR)
-    add_compile_options(-Werror)
+   # add_compile_options(-Werror)
 endif()
+]]
 
 if(NOT ENABLE_STRICT_ALIASING)
     add_compile_options(-fno-strict-aliasing)
@@ -324,7 +342,7 @@ elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
     add_compile_options(-Wno-self-move)
     add_compile_options(-Wno-format-pedantic)
     add_compile_options(-Wno-gnu-zero-variadic-macro-arguments)
-    set(libatomic_link_flags "-Wl,-Bstatic -latomic -Wl,-Bdynamic")
+    set(libatomic_link_flags "-Wl,-Bstatic -latomic -Wl,-Bdynamic -Wl,-allow-multiple-definition")
     set(CMAKE_REQUIRED_FLAGS "${libatomic_link_flags}")
     check_cxx_compiler_flag("${libatomic_link_flags}" has_static_libatomic)
     if(NOT has_static_libatomic)
@@ -520,12 +538,13 @@ if (LIBLZMA_FOUND)
     list(APPEND COMPRESSION_LIBRARIES ${LIBLZMA_LIBRARIES})
 endif()
 
-if (NOT ENABLE_JEMALLOC OR ENABLE_ASAN OR ENABLE_UBSAN)
+#[[   本地
+ if (NOT ENABLE_JEMALLOC OR ENABLE_ASAN OR ENABLE_UBSAN)
     set(JEMALLOC_LIB )
 else()
     set(JEMALLOC_LIB jemalloc)
 endif()
-
+]]
 execute_process(
     COMMAND ldd --version
     COMMAND head -1
@@ -568,6 +587,44 @@ macro(nebula_link_libraries target)
         ${libatomic_link_flags}
         -pthread
         ${COVERAGES}
+        /usr/local/lib/libseastar.a
+        /usr/local/lib/k2/libtso_client.a
+        /usr/local/lib/libseastar.a
+        /usr/local/lib/k2/libk23si_client.a 
+        /usr/local/lib/k2/libcpo_client.a 
+        /usr/local/lib/k2/libappbase.a
+        /usr/local/lib/libseastar.a
+        /usr/local/lib/k2/libdto.a 
+        /usr/local/lib/k2/libtransport.a
+        /usr/local/lib/libseastar.a 
+        /usr/local/lib/k2/libconfig.a
+        -lcrc32c 
+        /usr/local/lib/k2/libcommon.a
+        /usr/local/lib/libseastar.a 
+        /usr/lib/x86_64-linux-gnu/libboost_program_options.so 
+        /usr/lib/x86_64-linux-gnu/libboost_thread.so 
+        /usr/lib/x86_64-linux-gnu/libboost_chrono.so 
+        /usr/lib/x86_64-linux-gnu/libboost_date_time.so 
+        /usr/lib/x86_64-linux-gnu/libboost_atomic.so 
+        /usr/lib/x86_64-linux-gnu/libcares.so 
+        /usr/lib/x86_64-linux-gnu/libcryptopp.so 
+        /usr/lib/x86_64-linux-gnu/liblz4.so 
+        -lpthread 
+        -ldl 
+        /usr/lib/x86_64-linux-gnu/libgnutls.so
+        -latomic 
+        /usr/lib/x86_64-linux-gnu/libsctp.so 
+        /usr/lib/x86_64-linux-gnu/libprotobuf.so
+        -lrt 
+        /usr/lib/x86_64-linux-gnu/libyaml-cpp.so
+        /usr/lib/x86_64-linux-gnu/libibverbs.so 
+        /usr/lib/x86_64-linux-gnu/libhwloc.so 
+        /usr/lib/x86_64-linux-gnu/libnuma.so 
+        /usr/local/lib/libfmt.a 
+        /usr/local/lib/libfmt.a 
+        /usr/local/lib/libseastar.a 
+       
+
     )
 endmacro(nebula_link_libraries)
 
@@ -631,7 +688,16 @@ IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git/")
     ENDIF()
 ENDIF()
 
+
+add_compile_options(-O0 -g -Werror -Wno-sign-compare -Wno-deprecated -Wno-unused-parameter -Wno-type-limits -Wno-unused-function -Wno-char-subscripts -Wno-ignored-qualifiers -Wall -Wextra -march=skylake -mtune=skylake-avx512 -mavx -mavx2 -mxsave -mbmi -mbmi2 -mlzcnt -maes -mpopcnt)
+
+
+
+
+
+
 # package to rpm/deb
 MESSAGE(STATUS "ENABLE_PACK_ONE: ${ENABLE_PACK_ONE}")
 include(CPackage)
 package(${ENABLE_PACK_ONE})
+
