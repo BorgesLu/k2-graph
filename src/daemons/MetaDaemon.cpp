@@ -224,10 +224,11 @@ static void seastarStart() {
     addArg(argc,argv,"--tso_endpoint");
     addArg(argc,argv,"tcp+k2rpc://0.0.0.0:13000"); 
     std::cout<<"argc is: "<<argc<<std::endl;
-    for(int i=0;i<argc;i++){
+ /*   for(int i=0;i<argc;i++){
         std::cout<<" i "<<i<<argv[i]<<std::endl;
     }
-
+*/
+    LOG(ERROR) << "seastar thread 开始  ";
     std::cout<<"before start .....\n";
     std::cout<<"before start .....\n";
     app.start(argc, argv);
@@ -239,8 +240,8 @@ int main(int argc, char* argv[]) {
     google::SetVersionString(nebula::versionString());
     std::cout<<"start nebula-metad\n\n\n";
     folly::init(&argc, &argv, true);
-    std::thread k2Thread(seastarStart);
-    k2Thread.join();
+  //  std::thread k2Thread(seastarStart);
+  //  k2Thread.detach();
     
 
      if (FLAGS_data_path.empty()) {
@@ -349,18 +350,23 @@ int main(int argc, char* argv[]) {
 
     auto handler = std::make_shared<nebula::meta::MetaServiceHandler>(kvstore.get(), gClusterId);
     //LOG(INFO) << "The meta deamon start on " << localhost;
+    std::thread k2Thread(seastarStart);
     try {
         gServer = std::make_unique<apache::thrift::ThriftServer>();
         gServer->setPort(FLAGS_port);
         gServer->setReusePort(FLAGS_reuse_port);
         gServer->setIdleTimeout(std::chrono::seconds(0));  // No idle timeout on client connection
         gServer->setInterface(std::move(handler));
+       
         gServer->serve();  // Will wait until the server shuts down
     } catch (const std::exception &e) {
         LOG(ERROR) << "Exception thrown: " << e.what();
         return EXIT_FAILURE;
     }
-
+    
+    if(k2Thread.joinable()){
+        k2Thread.join();
+    }
     LOG(INFO) << "The meta Daemon stopped";
     return EXIT_SUCCESS;
 
