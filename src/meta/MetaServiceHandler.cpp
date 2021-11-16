@@ -131,24 +131,27 @@ MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq& req) {
         };
 
 
-/*
-         k2graph::pushQ(collectionCreateQ, myRequest);
+          LOG(ERROR) << "Befor pushQ!";
+        std::cout<<"befor pushQ"<<std::endl;
+         k2graph::pushQ(k2graph::collectionCreateQ, myRequest);
+          std::cout<<"after pushQ"<<std::endl;
          LOG(ERROR) << "After pushQ!";
-*/
 
 
-/*
+
+
          try
         { //future.get()时可能抛出异常
             // std::cout << "\n\n\n\nline240\n\n\n\n";
-            std::future<k2::Status> result = request.prom->get_future();
+            std::future<k2::Status> result = myRequest.prom->get_future();
             k2::Status  status = result.get();
 
             if (!status.is2xxOK())
             {
-                K2LOG_I(k2::log::k23si, "fail to create a collection");
+              //  K2LOG_I(k2::log::k23si, "fail to create a collection");
                 
                 // return -2;
+                std::cout<<"fail to create a collection"<<std::endl;
                 std::cout << status << std::endl;
               //  _return.code = ErrorCode::E_RPC_FAILURE;
               //  _return.id.space_id = -1;
@@ -161,7 +164,7 @@ MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq& req) {
               //  _return.code = ErrorCode::SUCCEEDED;
               //  _return.id.space_id = spaceTable[req.properties.space_name];
               //  std::cout << "\n\n _return.id.space_id  " << _return.id.space_id << std::endl;
-             
+             std::cout<<"success "<<std::endl;
              // _return.id.__set_space_id( _return.id.space_id);
 
 
@@ -175,7 +178,7 @@ MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq& req) {
           //  _return.code = ErrorCode::E_UNKNOWN;
           //  return;
         }
-*/
+
 
     auto* processor = CreateSpaceProcessor::instance(kvstore_);
     RETURN_FUTURE(processor);
