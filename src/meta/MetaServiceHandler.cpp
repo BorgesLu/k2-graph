@@ -57,457 +57,574 @@
 #include "k2_includes.h"
 #include "k2_queue_defs.h"
 
-
-
-
-#define RETURN_FUTURE(processor) \
+#define RETURN_FUTURE(processor)     \
     auto f = processor->getFuture(); \
-    processor->process(req); \
+    processor->process(req);         \
     return f;
 
+namespace nebula
+{
+    namespace meta
+    {
 
-namespace nebula {
-namespace meta {
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq& req) {
-    
-    LOG(ERROR) << "Future create space!";
-    auto properties = req.get_properties();
-    std::string mySpaceName =  properties.get_space_name();
-
-    static std::unordered_map<std::string, std::vector<std::string>> name2Eps = {
-    {"test1", {"tcp+k2rpc://0.0.0.0:10000"}},{"test2", {"tcp+k2rpc://0.0.0.0:10001"}},{"test3", {"tcp+k2rpc://0.0.0.0:10002"}}
-};
-    static std::unordered_map<std::string, int32_t> spaceTable;
-
-     bool isRepeated = false;
-    int32_t mySpaceID;
-    std::vector<k2::String> endpoints;
-    std::vector<std::string> stdEndpoints = name2Eps[mySpaceName];
-    for (const std::string& ep : stdEndpoints) {
-            endpoints.emplace_back(ep);
-    }
-        
-        //rangeEnds
-    std::vector<k2::String> rangeEnds;
-    rangeEnds.push_back("");
-
-        //判断name是否出现过
-        if(spaceTable.find(mySpaceName) != spaceTable.end())
-            { //出现过
-                std::cout << "space alerady exist!";
-                isRepeated = true;
-              //  _return.code = ErrorCode::E_EXISTED;
-              //  _return.id.space_id = spaceTable[req.properties.space_name];
-              
-              //  _return.id.__set_space_id( _return.id.space_id);
-              //  return;
-            }
-
-        if (!isRepeated)
+        folly::Future<cpp2::ListSpacesResp>
+        MetaServiceHandler::future_listSpaces(const cpp2::ListSpacesReq &req)
         {
-            mySpaceID = spaceTable.size();
-            std::cout << "\n\n " << "spaceTable.size() "<< spaceTable.size()<< std::endl;
-            mySpaceID++;
-          //  std::cout << "\n\n\n"<< "spaceID" << spaceID << std::endl;
-            spaceTable[mySpaceName] = mySpaceID;
+            // auto* processor = ListSpacesProcessor::instance(kvstore_);
+            // RETURN_FUTURE(processor);
+            std::cout << "list space called" << std::endl;
+            folly::Promise<cpp2::ListSpacesResp> promise_;
+            auto f = promise_.getFuture();
+            cpp2::ListSpacesResp resp_;
+
+            std::vector<cpp2::IdName> spaces; //返回sapcename 与 ID 的映射，也就是目前实现的 spaceTable；
+            std::string spaceName = "Test";
+            cpp2::ID id;
+            id.set_space_id(0);
+            cpp2::IdName space;
+            space.set_id(id);
+            space.set_name(std::move(spaceName));
+            spaces.emplace_back(std::move(space));
+
+            resp_.set_spaces(std::move(spaces));
+
+            nebula::cpp2::HostAddr host_addr;
+
+            std::string MetaIp = "127.0.0.1";
+            int32_t MetaPort = 9777;
+
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+
+            auto localMeatHost = hostAddrRet.value();
+            std::cout << "ip is: " << localMeatHost.first << std::endl;
+            std::cout << "port is: " << localMeatHost.second << std::endl;
+
+            host_addr.set_ip(localMeatHost.first);
+            host_addr.set_port(localMeatHost.second);
+            resp_.set_leader(host_addr);
+            //  resp_.set_leader(localhost);
+            resp_.code = cpp2::ErrorCode::SUCCEEDED;
+
+            promise_.setValue(std::move(resp_));
+
+            std::cout << "list space end\n\n";
+
+            return f;
         }
 
- 
-    k2graph::MyCollectionCreateRequest myRequest{
-            .req = k2::dto::CollectionCreateRequest{
-                .metadata{
-                    .name = std::to_string(mySpaceID),
-                    .hashScheme = k2::dto::HashScheme::HashCRC32C,
-                    .storageDriver = k2::dto::StorageDriver::K23SI,
-                    .capacity{},
-                    .retentionPeriod = 24h
-                },
-                .clusterEndpoints = std::move(endpoints),
-                .rangeEnds = std::move(rangeEnds)
-            },
-            .prom = new std::promise<k2::Status>()
+        /*
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq& req) {
+
+            LOG(ERROR) << "Future create space!";
+            auto properties = req.get_properties();
+            std::string mySpaceName =  properties.get_space_name();
+
+            static std::unordered_map<std::string, std::vector<std::string>> name2Eps = {
+            {"test1", {"tcp+k2rpc://0.0.0.0:10000"}},{"test2", {"tcp+k2rpc://0.0.0.0:10001"}},{"test3", {"tcp+k2rpc://0.0.0.0:10002"}}
         };
+            static std::unordered_map<std::string, int32_t> spaceTable;
 
-
-          LOG(ERROR) << "Befor pushQ!";
-        std::cout<<"befor pushQ"<<std::endl;
-         k2graph::pushQ(k2graph::collectionCreateQ, myRequest);
-          std::cout<<"after pushQ"<<std::endl;
-         LOG(ERROR) << "After pushQ!";
-
-
-
-
-         try
-        { //future.get()时可能抛出异常
-            // std::cout << "\n\n\n\nline240\n\n\n\n";
-            std::future<k2::Status> result = myRequest.prom->get_future();
-            k2::Status  status = result.get();
-
-            if (!status.is2xxOK())
-            {
-              //  K2LOG_I(k2::log::k23si, "fail to create a collection");
-                
-                // return -2;
-                std::cout<<"fail to create a collection"<<std::endl;
-                std::cout << status << std::endl;
-              //  _return.code = ErrorCode::E_RPC_FAILURE;
-              //  _return.id.space_id = -1;
-               
-              //  _return.id.__set_space_id( _return.id.space_id);
-              //  return;
+             bool isRepeated = false;
+            int32_t mySpaceID;
+            std::vector<k2::String> endpoints;
+            std::vector<std::string> stdEndpoints = name2Eps[mySpaceName];
+            for (const std::string& ep : stdEndpoints) {
+                    endpoints.emplace_back(ep);
             }
-            else
-            {
-              //  _return.code = ErrorCode::SUCCEEDED;
-              //  _return.id.space_id = spaceTable[req.properties.space_name];
-              //  std::cout << "\n\n _return.id.space_id  " << _return.id.space_id << std::endl;
-             std::cout<<"success "<<std::endl;
-             // _return.id.__set_space_id( _return.id.space_id);
+
+                //rangeEnds
+            std::vector<k2::String> rangeEnds;
+            rangeEnds.push_back("");
+
+                //判断name是否出现过
+                if(spaceTable.find(mySpaceName) != spaceTable.end())
+                    { //出现过
+                        std::cout << "space alerady exist!";
+                        isRepeated = true;
+                      //  _return.code = ErrorCode::E_EXISTED;
+                      //  _return.id.space_id = spaceTable[req.properties.space_name];
+
+                      //  _return.id.__set_space_id( _return.id.space_id);
+                      //  return;
+                    }
+
+                if (!isRepeated)
+                {
+                    mySpaceID = spaceTable.size();
+                    std::cout << "\n\n " << "spaceTable.size() "<< spaceTable.size()<< std::endl;
+                    mySpaceID++;
+                  //  std::cout << "\n\n\n"<< "spaceID" << spaceID << std::endl;
+                    spaceTable[mySpaceName] = mySpaceID;
+                }
+
+
+            k2graph::MyCollectionCreateRequest myRequest{
+                    .req = k2::dto::CollectionCreateRequest{
+                        .metadata{
+                            .name = std::to_string(mySpaceID),
+                            .hashScheme = k2::dto::HashScheme::HashCRC32C,
+                            .storageDriver = k2::dto::StorageDriver::K23SI,
+                            .capacity{},
+                            .retentionPeriod = 24h
+                        },
+                        .clusterEndpoints = std::move(endpoints),
+                        .rangeEnds = std::move(rangeEnds)
+                    },
+                    .prom = new std::promise<k2::Status>()
+                };
+
+
+                  LOG(ERROR) << "Befor pushQ!";
+                std::cout<<"befor pushQ"<<std::endl;
+                 k2graph::pushQ(k2graph::collectionCreateQ, myRequest);
+                  std::cout<<"after pushQ"<<std::endl;
+                 LOG(ERROR) << "After pushQ!";
 
 
 
-             //   return;
-            }
-            std::cout << "\n\n\n\nline242\n\n\n\n";
+
+                 try
+                { //future.get()时可能抛出异常
+                    // std::cout << "\n\n\n\nline240\n\n\n\n";
+                    std::future<k2::Status> result = myRequest.prom->get_future();
+                    k2::Status  status = result.get();
+
+                    if (!status.is2xxOK())
+                    {
+                      //  K2LOG_I(k2::log::k23si, "fail to create a collection");
+
+                        // return -2;
+                        std::cout<<"fail to create a collection"<<std::endl;
+                        std::cout << status << std::endl;
+                      //  _return.code = ErrorCode::E_RPC_FAILURE;
+                      //  _return.id.space_id = -1;
+
+                      //  _return.id.__set_space_id( _return.id.space_id);
+                      //  return;
+                    }
+                    else
+                    {
+                      //  _return.code = ErrorCode::SUCCEEDED;
+                      //  _return.id.space_id = spaceTable[req.properties.space_name];
+                      //  std::cout << "\n\n _return.id.space_id  " << _return.id.space_id << std::endl;
+                     std::cout<<"success "<<std::endl;
+                     // _return.id.__set_space_id( _return.id.space_id);
+
+
+
+                     //   return;
+                    }
+                    std::cout << "\n\n\n\nline242\n\n\n\n";
+                }
+                catch (...)
+                {
+                  //  _return.code = ErrorCode::E_UNKNOWN;
+                  //  return;
+                }
+
+
+            auto* processor = CreateSpaceProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
         }
-        catch (...)
+
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_dropSpace(const cpp2::DropSpaceReq& req) {
+            auto* processor = DropSpaceProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+
+
+        folly::Future<cpp2::AdminJobResp>
+        MetaServiceHandler::future_runAdminJob(const cpp2::AdminJobReq& req) {
+            auto* processor = AdminJobProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::GetSpaceResp>
+        MetaServiceHandler::future_getSpace(const cpp2::GetSpaceReq& req) {
+            auto* processor = GetSpaceProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ListHostsResp>
+        MetaServiceHandler::future_listHosts(const cpp2::ListHostsReq& req) {
+            auto* processor = ListHostsProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ListPartsResp>
+        MetaServiceHandler::future_listParts(const cpp2::ListPartsReq& req) {
+            auto* processor = ListPartsProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+*/
+        folly::Future<cpp2::GetPartsAllocResp>
+        MetaServiceHandler::future_getPartsAlloc(const cpp2::GetPartsAllocReq& req) {
+         //   auto* processor = GetPartsAllocProcessor::instance(kvstore_);
+         //   RETURN_FUTURE(processor);
+         std::cout<<"get partsAlloc called\n\n";
+        folly::Promise<cpp2::GetPartsAllocResp> promise_ ;
+        auto f = promise_.getFuture();
+        cpp2::GetPartsAllocResp resp_;
+
+         auto spaceID = req.get_space_id();
+         std::cout<<"spaceID is:"<< spaceID<<std::endl;
+
+        nebula::cpp2::HostAddr host_addr;
+        std::string MetaIp = "127.0.0.1";
+        int32_t MetaPort = 9777;
+        auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+        auto localMeatHost = hostAddrRet.value();
+        host_addr.set_ip(localMeatHost.first);
+        host_addr.set_port(localMeatHost.second);
+        resp_.set_leader(host_addr);
+        
+        decltype(resp_.parts) parts; 
+        nebula::PartitionID partId = 0; 
+        std::vector<nebula::cpp2::HostAddr> partHosts{host_addr};
+       
+        parts.emplace(partId, std::move(partHosts));
+        resp_.set_parts(std::move(parts));
+
+        
+         promise_.setValue(std::move(resp_));
+          std::cout<<"end of get partsAlloc \n\n";
+         return f; 
+
+        }
+/*
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_multiPut(const cpp2::MultiPutReq& req) {
+            auto* processor = MultiPutProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::GetResp>
+        MetaServiceHandler::future_get(const cpp2::GetReq& req) {
+            auto* processor = GetProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::MultiGetResp>
+        MetaServiceHandler::future_multiGet(const cpp2::MultiGetReq& req) {
+            auto* processor = MultiGetProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ScanResp>
+        MetaServiceHandler::future_scan(const cpp2::ScanReq& req) {
+            auto* processor = ScanProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_remove(const cpp2::RemoveReq& req) {
+            auto* processor = RemoveProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_removeRange(const cpp2::RemoveRangeReq& req) {
+            auto* processor = RemoveRangeProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_createTag(const cpp2::CreateTagReq& req) {
+            auto* processor = CreateTagProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_alterTag(const cpp2::AlterTagReq& req) {
+            auto* processor = AlterTagProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_dropTag(const cpp2::DropTagReq& req) {
+            auto* processor = DropTagProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::GetTagResp>
+        MetaServiceHandler::future_getTag(const cpp2::GetTagReq &req) {
+            auto* processor = GetTagProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+*/
+        folly::Future<cpp2::ListTagsResp>
+        MetaServiceHandler::future_listTags(const cpp2::ListTagsReq& req) {
+            //auto* processor = ListTagsProcessor::instance(kvstore_);
+            //RETURN_FUTURE(processor);
+        }
+
+/*
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_createEdge(const cpp2::CreateEdgeReq& req) {
+            auto* processor = CreateEdgeProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_alterEdge(const cpp2::AlterEdgeReq& req) {
+            auto* processor = AlterEdgeProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_dropEdge(const cpp2::DropEdgeReq& req) {
+            auto* processor = DropEdgeProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::GetEdgeResp>
+        MetaServiceHandler::future_getEdge(const cpp2::GetEdgeReq& req) {
+            auto* processor = GetEdgeProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+*/
+        folly::Future<cpp2::ListEdgesResp>
+        MetaServiceHandler::future_listEdges(const cpp2::ListEdgesReq& req) {
+           // auto* processor = ListEdgesProcessor::instance(kvstore_);
+           // RETURN_FUTURE(processor);
+        }
+/*
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_createTagIndex(const cpp2::CreateTagIndexReq& req) {
+            auto* processor = CreateTagIndexProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_dropTagIndex(const cpp2::DropTagIndexReq& req) {
+            auto* processor = DropTagIndexProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::GetTagIndexResp>
+        MetaServiceHandler::future_getTagIndex(const cpp2::GetTagIndexReq &req) {
+            auto* processor = GetTagIndexProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ListTagIndexesResp>
+        MetaServiceHandler::future_listTagIndexes(const cpp2::ListTagIndexesReq& req) {
+            auto* processor = ListTagIndexesProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_rebuildTagIndex(const cpp2::RebuildIndexReq& req) {
+            auto* processor = RebuildTagIndexProcessor::instance(kvstore_, adminClient_.get());
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ListIndexStatusResp>
+        MetaServiceHandler::future_listTagIndexStatus(const cpp2::ListIndexStatusReq& req) {
+            auto* processor = ListTagIndexStatusProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_createEdgeIndex(const cpp2::CreateEdgeIndexReq& req) {
+            auto* processor = CreateEdgeIndexProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_dropEdgeIndex(const cpp2::DropEdgeIndexReq& req) {
+            auto* processor = DropEdgeIndexProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::GetEdgeIndexResp>
+        MetaServiceHandler::future_getEdgeIndex(const cpp2::GetEdgeIndexReq& req) {
+            auto* processor = GetEdgeIndexProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ListEdgeIndexesResp>
+        MetaServiceHandler::future_listEdgeIndexes(const cpp2::ListEdgeIndexesReq& req) {
+            auto* processor = ListEdgeIndexesProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_rebuildEdgeIndex(const cpp2::RebuildIndexReq& req) {
+            auto* processor = RebuildEdgeIndexProcessor::instance(kvstore_, adminClient_.get());
+            RETURN_FUTURE(processor);
+        }
+
+        folly::Future<cpp2::ListIndexStatusResp>
+        MetaServiceHandler::future_listEdgeIndexStatus(const cpp2::ListIndexStatusReq& req) {
+            auto* processor = ListEdgeIndexStatusProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+        */
+        folly::Future<cpp2::HBResp>
+        MetaServiceHandler::future_heartBeat(const cpp2::HBReq &req)
         {
-          //  _return.code = ErrorCode::E_UNKNOWN;
-          //  return;
+            // auto* processor = HBProcessor::instance(kvstore_, clusterId_, &heartBeatStat_);
+            // RETURN_FUTURE(processor);
+            std::cout << "heartbeat called" << "\n\n\n";
+            folly::Promise<cpp2::HBResp> promise_;
+            auto f = promise_.getFuture();
+            cpp2::HBResp resp_;
+
+            nebula::cpp2::HostAddr host_addr;
+            std::string MetaIp = "127.0.0.1";
+            int32_t MetaPort = 9777;
+
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+            auto localMeatHost = hostAddrRet.value();
+            std::cout << "ip is: " << localMeatHost.first << std::endl;
+            std::cout << "port is: " << localMeatHost.second << std::endl;
+            host_addr.set_ip(localMeatHost.first);
+            host_addr.set_port(localMeatHost.second);
+            resp_.set_leader(host_addr);
+
+            int64_t lastUpdateTime = nebula::time::WallClock::fastNowInMilliSec();
+
+            resp_.set_last_update_time_in_ms(lastUpdateTime);
+            resp_.set_cluster_id(clusterId_);
+            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+            // return resp;
+            promise_.setValue(std::move(resp_));
+            std::cout << "heart beat end\n\n";
+
+            return f;
         }
 
+        /*
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_createUser(const cpp2::CreateUserReq& req) {
+            auto* processor = CreateUserProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-    auto* processor = CreateSpaceProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_dropUser(const cpp2::DropUserReq& req) {
+            auto* processor = DropUserProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_alterUser(const cpp2::AlterUserReq& req) {
+            auto* processor = AlterUserProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_dropSpace(const cpp2::DropSpaceReq& req) {
-    auto* processor = DropSpaceProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_grantRole(const cpp2::GrantRoleReq& req) {
+            auto* processor = GrantProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::ListSpacesResp>
-MetaServiceHandler::future_listSpaces(const cpp2::ListSpacesReq& req) {
-    auto* processor = ListSpacesProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_revokeRole(const cpp2::RevokeRoleReq& req) {
+            auto* processor = RevokeProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+        */
 
-folly::Future<cpp2::AdminJobResp>
-MetaServiceHandler::future_runAdminJob(const cpp2::AdminJobReq& req) {
-    auto* processor = AdminJobProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ListUsersResp>
+        MetaServiceHandler::future_listUsers(const cpp2::ListUsersReq &req)
+        {
+            // auto* processor = ListUsersProcessor::instance(kvstore_);
+            // RETURN_FUTURE(processor);
+            std::cout << "ListUsers called\n\n";
+            folly::Promise<cpp2::ListUsersResp> promise_;
+            auto f = promise_.getFuture();
+            cpp2::ListUsersResp resp_;
 
-folly::Future<cpp2::GetSpaceResp>
-MetaServiceHandler::future_getSpace(const cpp2::GetSpaceReq& req) {
-    auto* processor = GetSpaceProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+            decltype(resp_.users) users;
+            std::string account = "GOD";
+            std::string password = "nebula";
+            users.emplace(std::pair<std::string, std::string>(std::move(account), std::move(password)));
+            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+            promise_.setValue(std::move(resp_));
 
-folly::Future<cpp2::ListHostsResp>
-MetaServiceHandler::future_listHosts(const cpp2::ListHostsReq& req) {
-    auto* processor = ListHostsProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+            return f;
+        }
 
-folly::Future<cpp2::ListPartsResp>
-MetaServiceHandler::future_listParts(const cpp2::ListPartsReq& req) {
-    auto* processor = ListPartsProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        /*
+        folly::Future<cpp2::ListRolesResp>
+        MetaServiceHandler::future_listRoles(const cpp2::ListRolesReq& req) {
+            auto* processor = ListRolesProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::GetPartsAllocResp>
-MetaServiceHandler::future_getPartsAlloc(const cpp2::GetPartsAllocReq& req) {
-    auto* processor = GetPartsAllocProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_changePassword(const cpp2::ChangePasswordReq& req) {
+            auto* processor = ChangePasswordProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_multiPut(const cpp2::MultiPutReq& req) {
-    auto* processor = MultiPutProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ListRolesResp>
+        MetaServiceHandler::future_getUserRoles(const cpp2::GetUserRolesReq& req) {
+            auto* processor = GetUserRolesProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::GetResp>
-MetaServiceHandler::future_get(const cpp2::GetReq& req) {
-    auto* processor = GetProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::BalanceResp>
+        MetaServiceHandler::future_balance(const cpp2::BalanceReq& req) {
+            auto* processor = BalanceProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::MultiGetResp>
-MetaServiceHandler::future_multiGet(const cpp2::MultiGetReq& req) {
-    auto* processor = MultiGetProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_leaderBalance(const cpp2::LeaderBalanceReq& req) {
+            auto* processor = LeaderBalanceProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::ScanResp>
-MetaServiceHandler::future_scan(const cpp2::ScanReq& req) {
-    auto* processor = ScanProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_regConfig(const cpp2::RegConfigReq &req) {
+            auto* processor = RegConfigProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_remove(const cpp2::RemoveReq& req) {
-    auto* processor = RemoveProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::GetConfigResp>
+        MetaServiceHandler::future_getConfig(const cpp2::GetConfigReq &req) {
+            auto* processor = GetConfigProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_removeRange(const cpp2::RemoveRangeReq& req) {
-    auto* processor = RemoveRangeProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_setConfig(const cpp2::SetConfigReq &req) {
+            auto* processor = SetConfigProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_createTag(const cpp2::CreateTagReq& req) {
-    auto* processor = CreateTagProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ListConfigsResp>
+        MetaServiceHandler::future_listConfigs(const cpp2::ListConfigsReq &req) {
+            auto* processor = ListConfigsProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_alterTag(const cpp2::AlterTagReq& req) {
-    auto* processor = AlterTagProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_createSnapshot(const cpp2::CreateSnapshotReq& req) {
+            auto* processor = CreateSnapshotProcessor::instance(kvstore_, adminClient_.get());
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_dropTag(const cpp2::DropTagReq& req) {
-    auto* processor = DropTagProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_dropSnapshot(const cpp2::DropSnapshotReq& req) {
+            auto* processor = DropSnapshotProcessor::instance(kvstore_, adminClient_.get());
+            RETURN_FUTURE(processor);
+        }
 
-folly::Future<cpp2::GetTagResp>
-MetaServiceHandler::future_getTag(const cpp2::GetTagReq &req) {
-    auto* processor = GetTagProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
+        folly::Future<cpp2::ListSnapshotsResp>
+        MetaServiceHandler::future_listSnapshots(const cpp2::ListSnapshotsReq& req) {
+            auto* processor = ListSnapshotsProcessor::instance(kvstore_);
+            RETURN_FUTURE(processor);
+        }
+        */
 
-folly::Future<cpp2::ListTagsResp>
-MetaServiceHandler::future_listTags(const cpp2::ListTagsReq& req) {
-    auto* processor = ListTagsProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_createEdge(const cpp2::CreateEdgeReq& req) {
-    auto* processor = CreateEdgeProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_alterEdge(const cpp2::AlterEdgeReq& req) {
-    auto* processor = AlterEdgeProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_dropEdge(const cpp2::DropEdgeReq& req) {
-    auto* processor = DropEdgeProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::GetEdgeResp>
-MetaServiceHandler::future_getEdge(const cpp2::GetEdgeReq& req) {
-    auto* processor = GetEdgeProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ListEdgesResp>
-MetaServiceHandler::future_listEdges(const cpp2::ListEdgesReq& req) {
-    auto* processor = ListEdgesProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_createTagIndex(const cpp2::CreateTagIndexReq& req) {
-    auto* processor = CreateTagIndexProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_dropTagIndex(const cpp2::DropTagIndexReq& req) {
-    auto* processor = DropTagIndexProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::GetTagIndexResp>
-MetaServiceHandler::future_getTagIndex(const cpp2::GetTagIndexReq &req) {
-    auto* processor = GetTagIndexProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ListTagIndexesResp>
-MetaServiceHandler::future_listTagIndexes(const cpp2::ListTagIndexesReq& req) {
-    auto* processor = ListTagIndexesProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_rebuildTagIndex(const cpp2::RebuildIndexReq& req) {
-    auto* processor = RebuildTagIndexProcessor::instance(kvstore_, adminClient_.get());
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ListIndexStatusResp>
-MetaServiceHandler::future_listTagIndexStatus(const cpp2::ListIndexStatusReq& req) {
-    auto* processor = ListTagIndexStatusProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_createEdgeIndex(const cpp2::CreateEdgeIndexReq& req) {
-    auto* processor = CreateEdgeIndexProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_dropEdgeIndex(const cpp2::DropEdgeIndexReq& req) {
-    auto* processor = DropEdgeIndexProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::GetEdgeIndexResp>
-MetaServiceHandler::future_getEdgeIndex(const cpp2::GetEdgeIndexReq& req) {
-    auto* processor = GetEdgeIndexProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ListEdgeIndexesResp>
-MetaServiceHandler::future_listEdgeIndexes(const cpp2::ListEdgeIndexesReq& req) {
-    auto* processor = ListEdgeIndexesProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_rebuildEdgeIndex(const cpp2::RebuildIndexReq& req) {
-    auto* processor = RebuildEdgeIndexProcessor::instance(kvstore_, adminClient_.get());
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ListIndexStatusResp>
-MetaServiceHandler::future_listEdgeIndexStatus(const cpp2::ListIndexStatusReq& req) {
-    auto* processor = ListEdgeIndexStatusProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::HBResp>
-MetaServiceHandler::future_heartBeat(const cpp2::HBReq& req) {
-    auto* processor = HBProcessor::instance(kvstore_, clusterId_, &heartBeatStat_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_createUser(const cpp2::CreateUserReq& req) {
-    auto* processor = CreateUserProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_dropUser(const cpp2::DropUserReq& req) {
-    auto* processor = DropUserProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_alterUser(const cpp2::AlterUserReq& req) {
-    auto* processor = AlterUserProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_grantRole(const cpp2::GrantRoleReq& req) {
-    auto* processor = GrantProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_revokeRole(const cpp2::RevokeRoleReq& req) {
-    auto* processor = RevokeProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ListUsersResp>
-MetaServiceHandler::future_listUsers(const cpp2::ListUsersReq& req) {
-    auto* processor = ListUsersProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ListRolesResp>
-MetaServiceHandler::future_listRoles(const cpp2::ListRolesReq& req) {
-    auto* processor = ListRolesProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_changePassword(const cpp2::ChangePasswordReq& req) {
-    auto* processor = ChangePasswordProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ListRolesResp>
-MetaServiceHandler::future_getUserRoles(const cpp2::GetUserRolesReq& req) {
-    auto* processor = GetUserRolesProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::BalanceResp>
-MetaServiceHandler::future_balance(const cpp2::BalanceReq& req) {
-    auto* processor = BalanceProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_leaderBalance(const cpp2::LeaderBalanceReq& req) {
-    auto* processor = LeaderBalanceProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_regConfig(const cpp2::RegConfigReq &req) {
-    auto* processor = RegConfigProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::GetConfigResp>
-MetaServiceHandler::future_getConfig(const cpp2::GetConfigReq &req) {
-    auto* processor = GetConfigProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_setConfig(const cpp2::SetConfigReq &req) {
-    auto* processor = SetConfigProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ListConfigsResp>
-MetaServiceHandler::future_listConfigs(const cpp2::ListConfigsReq &req) {
-    auto* processor = ListConfigsProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_createSnapshot(const cpp2::CreateSnapshotReq& req) {
-    auto* processor = CreateSnapshotProcessor::instance(kvstore_, adminClient_.get());
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ExecResp>
-MetaServiceHandler::future_dropSnapshot(const cpp2::DropSnapshotReq& req) {
-    auto* processor = DropSnapshotProcessor::instance(kvstore_, adminClient_.get());
-    RETURN_FUTURE(processor);
-}
-
-folly::Future<cpp2::ListSnapshotsResp>
-MetaServiceHandler::future_listSnapshots(const cpp2::ListSnapshotsReq& req) {
-    auto* processor = ListSnapshotsProcessor::instance(kvstore_);
-    RETURN_FUTURE(processor);
-}
-
-}  // namespace meta
-}  // namespace nebula
+    } // namespace meta
+} // namespace nebula
