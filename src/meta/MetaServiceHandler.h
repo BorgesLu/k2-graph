@@ -36,19 +36,19 @@ public:
     folly::Future<cpp2::ListSpacesResp>
     future_listSpaces(const cpp2::ListSpacesReq& req) override;
     
-/*
+
     folly::Future<cpp2::ExecResp>
     future_createSpace(const cpp2::CreateSpaceReq& req) override;
-
+/*
     folly::Future<cpp2::ExecResp>
     future_dropSpace(const cpp2::DropSpaceReq& req) override;
 
     folly::Future<cpp2::ListSpacesResp>
     future_listSpaces(const cpp2::ListSpacesReq& req) override;
-
+*/
     folly::Future<cpp2::GetSpaceResp>
     future_getSpace(const cpp2::GetSpaceReq& req) override;
-
+/*
     folly::Future<cpp2::ListHostsResp>
     future_listHosts(const cpp2::ListHostsReq& req) override;
 
@@ -127,10 +127,10 @@ public:
 
     folly::Future<cpp2::GetTagIndexResp>
     future_getTagIndex(const cpp2::GetTagIndexReq &req) override;
-
+*/
     folly::Future<cpp2::ListTagIndexesResp>
     future_listTagIndexes(const cpp2::ListTagIndexesReq& req) override;
-
+/*
     folly::Future<cpp2::ExecResp>
     future_rebuildTagIndex(const cpp2::RebuildIndexReq& req) override;
 
@@ -142,10 +142,10 @@ public:
 
     folly::Future<cpp2::GetEdgeIndexResp>
     future_getEdgeIndex(const cpp2::GetEdgeIndexReq& req) override;
-
+*/
     folly::Future<cpp2::ListEdgeIndexesResp>
     future_listEdgeIndexes(const cpp2::ListEdgeIndexesReq& req) override;
-
+/*
     folly::Future<cpp2::ExecResp>
     future_rebuildEdgeIndex(const cpp2::RebuildIndexReq& req) override;
 
@@ -155,9 +155,9 @@ public:
     folly::Future<cpp2::ListIndexStatusResp>
     future_listEdgeIndexStatus(const cpp2::ListIndexStatusReq& req) override;
 */
-    /**
-     * User manager
-     **/
+    
+     // User manager
+    
 /*
     folly::Future<cpp2::ExecResp>
     future_createUser(const cpp2::CreateUserReq& req) override;
@@ -201,19 +201,19 @@ public:
 
     folly::Future<cpp2::ExecResp>
     future_leaderBalance(const cpp2::LeaderBalanceReq& req) override;
-
+*/
     folly::Future<cpp2::ExecResp>
     future_regConfig(const cpp2::RegConfigReq &req) override;
-
+/*
     folly::Future<cpp2::GetConfigResp>
     future_getConfig(const cpp2::GetConfigReq &req) override;
 
     folly::Future<cpp2::ExecResp>
     future_setConfig(const cpp2::SetConfigReq &req) override;
-
+*/
     folly::Future<cpp2::ListConfigsResp>
     future_listConfigs(const cpp2::ListConfigsReq &req) override;
-
+/*
     folly::Future<cpp2::ExecResp>
     future_createSnapshot(const cpp2::CreateSnapshotReq& req) override;
 

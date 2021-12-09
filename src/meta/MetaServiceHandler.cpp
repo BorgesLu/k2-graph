@@ -67,9 +67,18 @@ namespace nebula
     namespace meta
     {
 //通用的数据结构；
+
         std::unordered_map<GraphSpaceID, std::string> spaceIdNameMap_;
-       // GraphSpaceID DefaultSpaceId = 0;
-       // spaceIdNameMap_[DefaultSpaceId] = "DefaultSapce";
+
+//通用函数
+            
+    GraphSpaceID getSpaceID(const std::string& name){         
+            for(auto &iter:spaceIdNameMap_){
+                if (iter.second == name)
+                    return iter.first;
+            }
+            return -1;
+    }
 
 
 
@@ -306,12 +315,49 @@ namespace nebula
             RETURN_FUTURE(processor);
         }
 
+*/
         folly::Future<cpp2::GetSpaceResp>
         MetaServiceHandler::future_getSpace(const cpp2::GetSpaceReq& req) {
-            auto* processor = GetSpaceProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+            folly::Promise<cpp2::GetSpaceResp> promise_ ;
+            auto f = promise_.getFuture();
+            cpp2::GetSpaceResp resp_;
 
+              auto spaceName = req.get_space_name();
+              auto spaceID = getSpaceID(spaceName);
+              if(spaceID == -1){
+                  std::cout<<"space not exist!\n";
+                  //return;
+              }
+
+            cpp2::SpaceProperties properties;
+            properties.set_space_name(spaceName);
+            properties.set_partition_num(1); //暂时设为1, raft分区。在K2不在需要
+            properties.set_replica_factor(1);  //暂时设为1,多副本，容错，K2由远端的plog保证
+
+            cpp2::SpaceItem item;
+            item.set_space_id(spaceID);
+            item.set_properties(properties);
+            resp_.set_item(item);
+
+            //error-code  始终都是成功
+            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+
+            //leader ip
+            nebula::cpp2::HostAddr host_addr;
+            std::string MetaIp = "127.0.0.1";
+            int32_t MetaPort = 9777;
+
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+            auto localMeatHost = hostAddrRet.value();
+            host_addr.set_ip(localMeatHost.first);
+            host_addr.set_port(localMeatHost.second);
+            resp_.set_leader(host_addr);  
+
+            promise_.setValue(std::move(resp_));
+            return f;  
+
+        }
+/*
         folly::Future<cpp2::ListHostsResp>
         MetaServiceHandler::future_listHosts(const cpp2::ListHostsReq& req) {
             auto* processor = ListHostsProcessor::instance(kvstore_);
