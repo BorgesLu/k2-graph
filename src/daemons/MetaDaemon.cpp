@@ -42,7 +42,7 @@ DEFINE_int32(port,9777, "Meta daemon listening port");
 DEFINE_bool(reuse_port, true, "Whether to turn on the SO_REUSEPORT option");
 DEFINE_string(data_path, "data/meta", "Root data path");
 DEFINE_string(meta_server_addrs,
-              "127.0.0.1:9777",
+              "",
               "It is a list of IPs split by comma, used in cluster deployment"
               "the ips number is equal to the replica number."
               "If empty, it means it's a single node");
@@ -235,15 +235,23 @@ static void seastarStart() {
 }
 
 
+void thriftStart() {    
+    auto ioPool = std::make_shared<folly::IOThreadPoolExecutor>(FLAGS_num_io_threads);
+    std::shared_ptr<apache::thrift::concurrency::ThreadManager> threadManager(
+        apache::thrift::concurrency::PriorityThreadManager::newPriorityThreadManager(
+                                 FLAGS_num_worker_threads, true /*stats*/));
+
+    threadManager->setNamePrefix("executor");
+    threadManager->start();  
+
+}
+
 
 int main(int argc, char* argv[]) {
     google::SetVersionString(nebula::versionString());
     std::cout<<"start nebula-metad\n\n\n";
     folly::init(&argc, &argv, true);
-  //  std::thread k2Thread(seastarStart);
-  //  k2Thread.detach();
-    
-
+   
      if (FLAGS_data_path.empty()) {
         LOG(ERROR) << "Meta Data Path should not empty";
         return EXIT_FAILURE;
@@ -294,6 +302,7 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+/*
     auto kvstore = initKV(peersRet.value(), localhost);
     if (kvstore == nullptr) {
         LOG(ERROR) << "Init kv failed!";
@@ -319,12 +328,14 @@ int main(int argc, char* argv[]) {
             return EXIT_FAILURE;
         }
     }
+*/
 
-    {
+ //   {
         /**
          *  Only leader part needed.
          */
-        auto ret = kvstore->partLeader(nebula::meta::kDefaultSpaceId,
+
+/*        auto ret = kvstore->partLeader(nebula::meta::kDefaultSpaceId,
                                        nebula::meta::kDefaultPartId);
         if (!nebula::ok(ret)) {
             LOG(ERROR) << "Part leader get failed";
@@ -340,22 +351,28 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+*/
 
+/*
     // Setup the signal handlers
     status = setupSignalHandler();
     if (!status.ok()) {
         LOG(ERROR) << status;
         return EXIT_FAILURE;
     }
-
-    auto handler = std::make_shared<nebula::meta::MetaServiceHandler>(kvstore.get(), gClusterId);
+*/
+    auto handler = std::make_shared<nebula::meta::MetaServiceHandler>();
     //LOG(INFO) << "The meta deamon start on " << localhost;
-    std::thread k2Thread(seastarStart);
+   // std::thread k2Thread(seastarStart);
     try {
         gServer = std::make_unique<apache::thrift::ThriftServer>();
         gServer->setPort(FLAGS_port);
+
+       //https://github.com/facebook/fbthrift/blob/main/thrift/doc/Cpp2.md
+        gServer->setNumIOWorkerThreads(1); //网络IO的线程数
+        gServer->setNumCPUWorkerThreads(1); //工作线程
         gServer->setReusePort(FLAGS_reuse_port);
-        gServer->setIdleTimeout(std::chrono::seconds(0));  // No idle timeout on client connection
+        gServer->setIdleTimeout(std::chrono::seconds(10));  // No idle timeout on client connection
         gServer->setInterface(std::move(handler));
        
         gServer->serve();  // Will wait until the server shuts down
@@ -364,9 +381,10 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
     
-    if(k2Thread.joinable()){
-        k2Thread.join();
-    }
+   // if(k2Thread.joinable()){
+   //     k2Thread.join();
+   // }
+
     LOG(INFO) << "The meta Daemon stopped";
     return EXIT_SUCCESS;
 
@@ -375,6 +393,7 @@ int main(int argc, char* argv[]) {
 
 
 
+/*
 
 nebula::Status setupSignalHandler() {
     return nebula::SignalHandler::install(
@@ -403,5 +422,5 @@ void signalHandler(int sig) {
     }
 }
 
-
+*/
 
