@@ -250,8 +250,8 @@ message(STATUS "CMAKE_PROGRAM_PATH: " ${PROGRAM_PATH_STR})
 
 
 find_package(k2 REQUIRED)
-find_package (Seastar REQUIRED)
-find_package (fmt REQUIRED)
+find_package(Seastar REQUIRED)
+find_package(fmt REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package (yaml-cpp REQUIRED) # required for configuration file parsing
 
