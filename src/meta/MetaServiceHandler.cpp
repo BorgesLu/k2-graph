@@ -66,82 +66,106 @@ namespace nebula
 {
     namespace meta
     {
-//通用的数据结构；
+        //通用的数据结构；
+        static int32_t MetaPort = 9777; // Meta节点端口
+        static std::string MetaIp = "127.0.0.1";
+
+        static int32_t StoragePort = 9779; // Meta节点端口
+        static std::string StorageIp = "127.0.0.1";
+
+
+
+        //修改元信息的时候，更新这个数据
+        int64_t GlobalLastUpdateTime;
+
+        //std::unordered_map<GraphSpaceID, std::vector<PartitionID>> LeaderParts;
 
         std::unordered_map<GraphSpaceID, std::string> spaceIdNameMap_;
 
         using schemaID = int32_t;
-        using tagID = int32_t;
-        using edgeID = int32_t;
+
         //顶点和边的schema name都不允许重复，不同space 之间的名称相互隔离
-        std::unordered_map<std::pair<GraphSpaceID, std::string>,schemaID>  SpaceSchemaNameIDMap ;
-        
+        std::unordered_map<std::pair<GraphSpaceID, std::string>, schemaID> SpaceSchemaNameIDMap;
+
         //维护schema的信息。减少对K2的访问和类型转换。
         //对点和边的schema是分开访问的，所以这里维护了两张表
-        //TagItem 内容：TagID, TagName,SchemaerVer,Schema
-        std::unordered_map<std::pair<GraphSpaceID, tagID>,cpp2::TagItem> SpaceTagMap;
-        std::unordered_map<std::pair<GraphSpaceID, edgeID>,nebula::cpp2::Schema> SpaceEdgeMap;
+        // TagItem 内容：TagID, TagName,SchemaerVer,Schema
+        std::unordered_map<std::pair<GraphSpaceID, TagID>, cpp2::TagItem> SpaceTagMap;
+        std::unordered_map<std::pair<GraphSpaceID, EdgeType>, nebula::cpp2::Schema> SpaceEdgeTypeMap;
 
+        //通用函数
 
-
-//通用函数
-            
-    GraphSpaceID getSpaceID(const std::string& name){         
-            for(auto &iter:spaceIdNameMap_){
+        GraphSpaceID getSpaceID(const std::string &name)
+        {
+            for (auto &iter : spaceIdNameMap_)
+            {
                 if (iter.second == name)
                     return iter.first;
             }
             return -1;
-    }
+        }
+//构造存储节点地址
+        nebula::cpp2::HostAddr getStorageAddr()    {
+        nebula::cpp2::HostAddr meta_host_addr;
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIP, MetaPort);
+            auto localMetaHost = hostAddrRet.value();
+            meta_host_addr.set_ip(localStorageHost.first);
+            meta_host_addr.set_port(localStorageHost.second);
+            return meta_host_addr;
+     }
+
+//构造存储meta 地址
+        nebula::cpp2::HostAddr getMetaAddr()    {
+        nebula::cpp2::HostAddr storage_host_addr;
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(StorageIp, StoragePort);
+            auto localStorageHost = hostAddrRet.value();
+            storage_host_addr.set_ip(localStorageHost.first);
+            storage_host_addr.set_port(localStorageHost.second);
+            return storage_host_addr;
+     }
 
 
         folly::Future<cpp2::ListSpacesResp>
         MetaServiceHandler::future_listSpaces(const cpp2::ListSpacesReq &req)
         {
-           // std::cout << "list space called" << std::endl;
+            // std::cout << "list space called" << std::endl;
             folly::Promise<cpp2::ListSpacesResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ListSpacesResp resp_;
 
             std::vector<cpp2::IdName> spaces; //返回sapcename 与 ID 的映射，也就是目前实现的 spaceTable；
-           // std::string spaceName = "Test";
-           // cpp2::ID id;
-           // id.set_space_id(0);
-           // cpp2::IdName space;
+                                              // std::string spaceName = "Test";
+                                              // cpp2::ID id;
+                                              // id.set_space_id(0);
+                                              // cpp2::IdName space;
 
-           // spaceid 0 保留
-          GraphSpaceID DefaultSpaceId = 0;
-          spaceIdNameMap_[DefaultSpaceId] = "DefaultSapce";
-            
-            for(auto &iter:spaceIdNameMap_){
-                 cpp2::IdName space;
-                 cpp2::ID id;
-                 id.set_space_id(iter.first);
-                 space.set_id(id);
-                 std::cout<<"listSpace(): "<<iter.second<<std::endl;
-                 space.set_name(iter.second);
-                 
-                 spaces.emplace_back(std::move(space));
+            // spaceid 0 保留 ,使用 0 也会报错,不能写在map里面，不应该对用户可见
+            //  GraphSpaceID DefaultSpaceId = 0;
+            //  spaceIdNameMap_[DefaultSpaceId] = "DefaultSapce";
 
+            // schemaid 0 保留 ?
+            // TagID DefaultTagId = 0;
+            // std::string DefaultSchemaName = "DefaultSchemaName";
+            //  SpaceSchemaNameIDMap[std::make_pair(DefaultSpaceId,DefaultSchemaName)] = DefaultTagId;
+
+            for (auto &iter : spaceIdNameMap_)
+            {
+                cpp2::IdName space;
+                cpp2::ID id;
+                id.set_space_id(iter.first);
+                space.set_id(id);
+                std::cout << "listSpace(): " << iter.second << std::endl;
+                space.set_name(iter.second);
+
+                spaces.emplace_back(std::move(space));
             }
-          //  space.set_id(id);
-          //  space.set_name(std::move(spaceName));
-          //  spaces.emplace_back(std::move(space));
 
             resp_.set_spaces(std::move(spaces));
 
-//ip 
+            // ip
             nebula::cpp2::HostAddr host_addr;
-
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
-
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
-
             auto localMeatHost = hostAddrRet.value();
-           // std::cout << "ip is: " << localMeatHost.first << std::endl;
-           // std::cout << "port is: " << localMeatHost.second << std::endl;
-
             host_addr.set_ip(localMeatHost.first);
             host_addr.set_port(localMeatHost.second);
             resp_.set_leader(host_addr);
@@ -150,148 +174,145 @@ namespace nebula
 
             promise_.setValue(std::move(resp_));
 
-          //  std::cout << "list space end\n\n";
+            //  std::cout << "list space end\n\n";
 
             return f;
         }
 
+        // without k2
+        /*
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq& req) {
 
-//without k2
-/*
+                    std::cout<<"create space called\n";
+                    folly::Promise<cpp2::ExecResp> promise_;
+                    auto f = promise_.getFuture();
+                    cpp2::ExecResp resp_;
+
+                    auto properties = req.get_properties();
+                    std::string mySpaceName =  properties.get_space_name();
+                    std::cout<<"create space():"<<mySpaceName<<std::endl;
+                    GraphSpaceID mySpaceID = spaceIdNameMap_.size();
+                    spaceIdNameMap_[mySpaceID] = mySpaceName;
+
+                    cpp2::ID thriftID;
+                    thriftID.set_space_id(mySpaceID);
+                    resp_.set_id(thriftID);
+
+                    resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+
+                    //leader ip
+                    nebula::cpp2::HostAddr host_addr;
+                    std::sMeta = "127.0.0.1";
+                    inMeta = 9777;
+
+                    auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp,MetaPort);
+                    auto localMeatHost = hostAddrRet.value();
+                    host_addr.set_ip(localMeatHost.first);
+                    host_addr.set_port(localMeatHost.second);
+                    resp_.set_leader(host_addr);
+
+                    std::cout<<"create space end\n";
+
+                    promise_.setValue(std::move(resp_));
+                    return f;
+                }
+        */
+
+        // create space with K2
+
         folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq& req) {
-           
-            std::cout<<"create space called\n";
-            folly::Promise<cpp2::ExecResp> promise_;
-            auto f = promise_.getFuture();
-            cpp2::ExecResp resp_;
-
-            auto properties = req.get_properties();
-            std::string mySpaceName =  properties.get_space_name();
-            std::cout<<"create space():"<<mySpaceName<<std::endl;
-            GraphSpaceID mySpaceID = spaceIdNameMap_.size();
-            spaceIdNameMap_[mySpaceID] = mySpaceName;
-            
-            cpp2::ID thriftID;
-            thriftID.set_space_id(mySpaceID);
-            resp_.set_id(thriftID);
-
-            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
-
-            //leader ip
-            nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
-
-            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
-            auto localMeatHost = hostAddrRet.value();
-            host_addr.set_ip(localMeatHost.first);
-            host_addr.set_port(localMeatHost.second);
-            resp_.set_leader(host_addr);
-
-            std::cout<<"create space end\n";  
-
-            promise_.setValue(std::move(resp_));
-            return f;    
-        }
-*/
-
-//create space with K2 
-
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq& req) {
+        MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq &req)
+        {
             std::cout << "Create space with k2 called!\n";
             folly::Promise<cpp2::ExecResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ExecResp resp_;
-            
+
             auto properties = req.get_properties();
-            std::string mySpaceName =  properties.get_space_name();
+            std::string mySpaceName = properties.get_space_name();
 
             static std::unordered_map<std::string, std::vector<std::string>> name2Eps = {
-            {"test1", {"tcp+k2rpc://0.0.0.0:10000"}},{"test2", {"tcp+k2rpc://0.0.0.0:10001"}},{"test3", {"tcp+k2rpc://0.0.0.0:10002"}}
-        };
-            static std::unordered_map<std::string, int32_t> spaceTable;
+                {"test1", {"tcp+k2rpc://0.0.0.0:10000"}}, {"test2", {"tcp+k2rpc://0.0.0.0:10001"}}, {"test3", {"tcp+k2rpc://0.0.0.0:10002"}}};
 
-             bool isRepeated = false;
+            bool isRepeated = false;
             int32_t mySpaceID;
             std::vector<k2::String> endpoints;
             std::vector<std::string> stdEndpoints = name2Eps[mySpaceName];
-            for (const std::string& ep : stdEndpoints) {
-                    endpoints.emplace_back(ep);
+            for (const std::string &ep : stdEndpoints)
+            {
+                endpoints.emplace_back(ep);
             }
 
-                //rangeEnds
+            // rangeEnds
             std::vector<k2::String> rangeEnds;
             rangeEnds.push_back("");
 
             //判断name是否出现过
-            for(auto &iter:spaceIdNameMap_){
-                if(iter.second == mySpaceName){
-                        std::cout << "space alerady exist!";
-                        isRepeated = true;
-                        resp_.set_code(cpp2::ErrorCode::E_EXISTED);
-                        mySpaceID = -1;
-                }               
+            for (auto &iter : spaceIdNameMap_)
+            {
+                if (iter.second == mySpaceName)
+                {
+                    std::cout << "space alerady exist!";
+                    isRepeated = true;
+                    resp_.set_code(cpp2::ErrorCode::E_EXISTED);
+                    mySpaceID = -1;
+                }
             }
 
             if (!isRepeated)
             {
                 mySpaceID = spaceIdNameMap_.size();
+                mySpaceID++;
                 spaceIdNameMap_[mySpaceID] = mySpaceName;
+                //更新心跳时间
+                GlobalLastUpdateTime = nebula::time::WallClock::fastNowInMilliSec();
             }
 
             k2graph::MyCollectionCreateRequest myRequest{
-                    .req = k2::dto::CollectionCreateRequest{
-                        .metadata{
-                            .name = std::to_string(mySpaceID),
-                            .hashScheme = k2::dto::HashScheme::HashCRC32C,
-                            .storageDriver = k2::dto::StorageDriver::K23SI,
-                            .capacity{},
-                            .retentionPeriod = 24h
-                        },
-                        .clusterEndpoints = std::move(endpoints),
-                        .rangeEnds = std::move(rangeEnds)
-                    },
-                    .prom = new std::promise<k2::Status>()
-                };
+                .req = k2::dto::CollectionCreateRequest{
+                    .metadata{
+                        .name = std::to_string(mySpaceID),
+                        .hashScheme = k2::dto::HashScheme::HashCRC32C,
+                        .storageDriver = k2::dto::StorageDriver::K23SI,
+                        .capacity{},
+                        .retentionPeriod = 24h},
+                    .clusterEndpoints = std::move(endpoints),
+                    .rangeEnds = std::move(rangeEnds)},
+                .prom = new std::promise<k2::Status>()};
 
-                k2graph::pushQ(k2graph::collectionCreateQ, myRequest);
+            k2graph::pushQ(k2graph::collectionCreateQ, myRequest);
 
-                try
-                { //future.get()时可能抛出异常
-                    
-                    std::future<k2::Status> result = myRequest.prom->get_future();
-                    k2::Status  status = result.get();
+            try
+            { // future.get()时可能抛出异常
 
-                    if (!status.is2xxOK())
-                    {
+                std::future<k2::Status> result = myRequest.prom->get_future();
+                k2::Status status = result.get();
 
-                        std::cout<<"fail to create a collection"<<std::endl;
-                        std::cout << status << std::endl;
-                    }
-                    else
-                    {
-                     std::cout<<"success "<<std::endl;
-                     resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
-  
-                    }
-                }
-                catch (...)
+                if (!status.is2xxOK())
                 {
-                  //  _return.code = ErrorCode::E_UNKNOWN;
-                  //  return;
+
+                    std::cout << "fail to create a collection" << std::endl;
+                    std::cout << status << std::endl;
                 }
+                else
+                {
+                    std::cout << "success " << std::endl;
+                    resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+                }
+            }
+            catch (...)
+            {
+                //  _return.code = ErrorCode::E_UNKNOWN;
+                //  return;
+            }
 
             cpp2::ID thriftID;
             thriftID.set_space_id(mySpaceID);
-            resp_.set_id(thriftID);      
+            resp_.set_id(thriftID);
 
-         //leader ip
+            // leader ip
             nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
-
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
             auto localMeatHost = hostAddrRet.value();
             host_addr.set_ip(localMeatHost.first);
@@ -301,176 +322,251 @@ namespace nebula
             promise_.setValue(std::move(resp_));
             return f;
 
-            std::cout<<"create space with k2 end\n";
-
-
-        }
-        
-
-/*
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_dropSpace(const cpp2::DropSpaceReq& req) {
-            auto* processor = DropSpaceProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
+            std::cout << "create space with k2 end\n";
         }
 
+        /*
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_dropSpace(const cpp2::DropSpaceReq& req) {
+                    auto* processor = DropSpaceProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
+                folly::Future<cpp2::AdminJobResp>
+                MetaServiceHandler::future_runAdminJob(const cpp2::AdminJobReq& req) {
+                    auto* processor = AdminJobProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::AdminJobResp>
-        MetaServiceHandler::future_runAdminJob(const cpp2::AdminJobReq& req) {
-            auto* processor = AdminJobProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-
-*/
+        */
         folly::Future<cpp2::GetSpaceResp>
-        MetaServiceHandler::future_getSpace(const cpp2::GetSpaceReq& req) {
-            folly::Promise<cpp2::GetSpaceResp> promise_ ;
+        MetaServiceHandler::future_getSpace(const cpp2::GetSpaceReq &req)
+        {
+            folly::Promise<cpp2::GetSpaceResp> promise_;
             auto f = promise_.getFuture();
             cpp2::GetSpaceResp resp_;
 
-              auto spaceName = req.get_space_name();
-              auto spaceID = getSpaceID(spaceName);
-              if(spaceID == -1){
-                  std::cout<<"space not exist!\n";
-                  //return;
-              }
+            auto spaceName = req.get_space_name();
+            auto spaceID = getSpaceID(spaceName);
+            if (spaceID == -1)
+            {
+                std::cout << "space not exist!\n";
+                // return;
+            }
 
             cpp2::SpaceProperties properties;
             properties.set_space_name(spaceName);
-            properties.set_partition_num(1); //暂时设为1, raft分区。在K2不在需要
-            properties.set_replica_factor(1);  //暂时设为1,多副本，容错，K2由远端的plog保证
+            properties.set_partition_num(1);     //暂时设为1, 对对应到一个存储节点
+            properties.set_replica_factor(1);    //暂时设为1,多副本，容错，K2由远端的plog保证
+            properties.set_charset_name("utf8"); //
+            properties.set_collate_name("utf8_bin");
 
             cpp2::SpaceItem item;
             item.set_space_id(spaceID);
             item.set_properties(properties);
             resp_.set_item(item);
 
-            //error-code  始终都是成功
+            // error-code  始终都是成功
             resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
 
-            //leader ip
+            // leader ip
             nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
 
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
             auto localMeatHost = hostAddrRet.value();
             host_addr.set_ip(localMeatHost.first);
             host_addr.set_port(localMeatHost.second);
-            resp_.set_leader(host_addr);  
+            resp_.set_leader(host_addr);
 
             promise_.setValue(std::move(resp_));
-            return f;  
-
+            return f;
         }
-/*
+
+        // list Host
         folly::Future<cpp2::ListHostsResp>
-        MetaServiceHandler::future_listHosts(const cpp2::ListHostsReq& req) {
-            auto* processor = ListHostsProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
+        MetaServiceHandler::future_listHosts(const cpp2::ListHostsReq &req)
+        {
+            folly::Promise<cpp2::ListHostsResp> promise_;
+            auto f = promise_.getFuture();
+            cpp2::ListHostsResp resp_;
+
+            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+
+            // leader ip
+            nebula::cpp2::HostAddr host_addr;
+
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+            auto localMeatHost = hostAddrRet.value();
+            host_addr.set_ip(localMeatHost.first);
+            host_addr.set_port(localMeatHost.second);
+            resp_.set_leader(host_addr);
+
+            //只有一个节点，假设总是在线
+            std::vector<cpp2::HostItem> hostItems_;
+            cpp2::HostItem item;
+            auto storage_host_addr = getStorageAddr();
+            item.set_hostAddr(storage_host_addr);
+            item.set_status(cpp2::HostStatus::ONLINE);
+
+            //构造 leader_part; all_part
+
+            std::vector<int> partVector{1};
+
+            std::unordered_map<std::string, std::vector<PartitionID>> leaderPart;
+            for (auto &iter : spaceIdNameMap_)
+            {
+                leaderPart.emplace(iter.second, partVector);
+            }
+
+            item.set_leader_parts(leaderPart);
+            item.set_all_parts(leaderPart);
+
+            hostItems_.emplace_back(item);
+            resp_.set_hosts(std::move(hostItems_));
+            //
+            promise_.setValue(std::move(resp_));
+            return f;
         }
 
         folly::Future<cpp2::ListPartsResp>
-        MetaServiceHandler::future_listParts(const cpp2::ListPartsReq& req) {
-            auto* processor = ListPartsProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
+        MetaServiceHandler::future_listParts(const cpp2::ListPartsReq &req)
+        {
+            std::cout << "listparts called\n\n";
+            folly::Promise<cpp2::ListPartsResp> promise_;
+            auto f = promise_.getFuture();
+            cpp2::ListPartsResp resp_;
+            GraphSpaceID spaceId_;
+            std::vector<PartitionID> partIds_;
+            spaceId_ = req.get_space_id();
+            partIds_ = req.get_part_ids();
+
+            nebula::cpp2::HostAddr host_addr;
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+            auto localMeatHost = hostAddrRet.value();
+            host_addr.set_ip(localMeatHost.first);
+            host_addr.set_port(localMeatHost.second);
+            resp_.set_leader(host_addr);
+
+            //构造一个 partItem
+            std::vector<cpp2::PartItem> partItems;
+
+            int32_t partid = 1;
+            cpp2::PartItem partItem;
+            partItem.set_part_id(partid);
+
+
+            auto storage_host_addr = getStorageAddr();
+            std::vector<nebula::cpp2::HostAddr> partHosts{storage_host_addr};
+            partItem.set_peers(partHosts);
+
+            partItems.emplace_back(partItem);
+
+            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+
+            promise_.setValue(std::move(resp_));
+
+            return f;
         }
-*/
+
         folly::Future<cpp2::GetPartsAllocResp>
-        MetaServiceHandler::future_getPartsAlloc(const cpp2::GetPartsAllocReq& req) {
-         //   auto* processor = GetPartsAllocProcessor::instance(kvstore_);
-         //   RETURN_FUTURE(processor);
-       //  std::cout<<"get partsAlloc called\n\n";
-        folly::Promise<cpp2::GetPartsAllocResp> promise_ ;
-        auto f = promise_.getFuture();
-        cpp2::GetPartsAllocResp resp_;
+        MetaServiceHandler::future_getPartsAlloc(const cpp2::GetPartsAllocReq &req)
+        {
 
-         auto spaceID = req.get_space_id();
-        // std::cout<<"spaceID is:"<< spaceID<<std::endl;
+            std::cout << "get partsAlloc called\n\n";
+            folly::Promise<cpp2::GetPartsAllocResp> promise_;
+            auto f = promise_.getFuture();
+            cpp2::GetPartsAllocResp resp_;
 
-        nebula::cpp2::HostAddr host_addr;
-        std::string MetaIp = "127.0.0.1";
-        int32_t MetaPort = 9777;
-        auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
-        auto localMeatHost = hostAddrRet.value();
-        host_addr.set_ip(localMeatHost.first);
-        host_addr.set_port(localMeatHost.second);
-        resp_.set_leader(host_addr);
-        
-        decltype(resp_.parts) parts; 
-        nebula::PartitionID partId = 0; 
-        std::vector<nebula::cpp2::HostAddr> partHosts{host_addr};
-       
-        parts.emplace(partId, std::move(partHosts));
-        resp_.set_parts(std::move(parts));
+            auto spaceID = req.get_space_id();
+            // std::cout<<"spaceID is:"<< spaceID<<std::endl;
 
-        
-         promise_.setValue(std::move(resp_));
-       //   std::cout<<"end of get partsAlloc \n\n";
-         return f; 
+            nebula::cpp2::HostAddr host_addr;
+            // std::sMeta = "127.0.0.1";
+            // inMeta = 9777;
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+            auto localMeatHost = hostAddrRet.value();
+            host_addr.set_ip(localMeatHost.first);
+            host_addr.set_port(localMeatHost.second);
+            resp_.set_leader(host_addr);
+            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
 
+            // part 与存储节点的映射关系
+            decltype(resp_.parts) parts;
+            nebula::PartitionID partId = 1;
+
+            auto storage_host_addr = getStorageAddr();
+            std::vector<nebula::cpp2::HostAddr> partHosts{storage_host_addr};
+
+            parts.emplace(partId, std::move(partHosts));
+            resp_.set_parts(std::move(parts));
+
+            promise_.setValue(std::move(resp_));
+            //   std::cout<<"end of get partsAlloc \n\n";
+            return f;
         }
-/*
+        /*
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_multiPut(const cpp2::MultiPutReq& req) {
+                    auto* processor = MultiPutProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+
+                folly::Future<cpp2::GetResp>
+                MetaServiceHandler::future_get(const cpp2::GetReq& req) {
+                    auto* processor = GetProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+
+                folly::Future<cpp2::MultiGetResp>
+                MetaServiceHandler::future_multiGet(const cpp2::MultiGetReq& req) {
+                    auto* processor = MultiGetProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+
+                folly::Future<cpp2::ScanResp>
+                MetaServiceHandler::future_scan(const cpp2::ScanReq& req) {
+                    auto* processor = ScanProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_remove(const cpp2::RemoveReq& req) {
+                    auto* processor = RemoveProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_removeRange(const cpp2::RemoveRangeReq& req) {
+                    auto* processor = RemoveRangeProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+        */
         folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_multiPut(const cpp2::MultiPutReq& req) {
-            auto* processor = MultiPutProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-
-        folly::Future<cpp2::GetResp>
-        MetaServiceHandler::future_get(const cpp2::GetReq& req) {
-            auto* processor = GetProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-
-        folly::Future<cpp2::MultiGetResp>
-        MetaServiceHandler::future_multiGet(const cpp2::MultiGetReq& req) {
-            auto* processor = MultiGetProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-
-        folly::Future<cpp2::ScanResp>
-        MetaServiceHandler::future_scan(const cpp2::ScanReq& req) {
-            auto* processor = ScanProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_remove(const cpp2::RemoveReq& req) {
-            auto* processor = RemoveProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_removeRange(const cpp2::RemoveRangeReq& req) {
-            auto* processor = RemoveRangeProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-*/
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_createTag(const cpp2::CreateTagReq& req) {
-            std::cout<<"create tag called\n";
-            folly::Promise<cpp2::ExecResp> promise_ ;
+        MetaServiceHandler::future_createTag(const cpp2::CreateTagReq &req)
+        {
+            std::cout << "create tag called\n";
+            folly::Promise<cpp2::ExecResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ExecResp resp_;
 
-            
             bool isRepeated = false;
             int32_t tagID;
 
-            auto spaceID = req.get_space_id();  //todo : 检查spaceID 的合法性
+            auto spaceID = req.get_space_id(); // todo : 检查spaceID 的合法性
             auto tagName = req.get_tag_name();
-            auto iter =  SpaceSchemaNameIDMap.find(std::make_pair(spaceID,tagName));
-            if(iter != SpaceSchemaNameIDMap.end()){
+            auto iter = SpaceSchemaNameIDMap.find(std::make_pair(spaceID, tagName));
+            if (iter != SpaceSchemaNameIDMap.end())
+            {
                 resp_.set_code(cpp2::ErrorCode::E_EXISTED);
                 tagID = -1;
                 isRepeated = true;
             }
 
-            if(!isRepeated){
+            if (!isRepeated)
+            {
                 tagID = SpaceSchemaNameIDMap.size();
-                auto pair = std::make_pair(spaceID,tagName);
+                tagID = tagID + 2; //从2 开始；
+                auto pair = std::make_pair(spaceID, tagName);
                 SpaceSchemaNameIDMap[pair] = tagID;
             }
 
@@ -478,108 +574,108 @@ namespace nebula
             TagSchema.name = std::to_string(tagID);
             TagSchema.version = 1;
 
-//在这里维护SpaceTagMap的信息
-          
-            tagID = SpaceSchemaNameIDMap.size();
-            auto pair = std::make_pair(spaceID,tagID);
+            //在这里维护SpaceTagMap的信息
+
+            // tagID = SpaceSchemaNameIDMap.size();
+            auto pair = std::make_pair(spaceID, tagID);
             cpp2::TagItem item;
-            int64_t version = 1;
+            int64_t version = 0; // nebula 的版本是从 0开始
             item.set_tag_id(tagID);
             item.set_tag_name(tagName);
             item.set_version(version);
             item.set_schema(req.schema);
-
             SpaceTagMap[pair] = item;
 
+            //更新心跳时间; todo 加锁保护
+            GlobalLastUpdateTime = nebula::time::WallClock::fastNowInMilliSec();
 
             TagSchema.fields = std::vector<k2::dto::SchemaField>{
-            {k2::dto::FieldType::INT16T, "PartID", false, false},
-            {k2::dto::FieldType::INT64T, "VertexID", false, false},
-            {k2::dto::FieldType::INT32T, "TagID", false, false}};
+                {k2::dto::FieldType::INT16T, "PartID", false, false},
+                {k2::dto::FieldType::INT64T, "VertexID", false, false},
+                {k2::dto::FieldType::INT32T, "TagID", false, false}};
 
             TagSchema.setPartitionKeyFieldsByName(std::vector<k2::String>{"PartID"});
             TagSchema.setRangeKeyFieldsByName(std::vector<k2::String>{"VertexID", "TagID"});
 
-        //自定义的schema字段
-           auto columns = req.get_schema().get_columns();
-          if (!columns.empty()){
-              k2::dto::SchemaField Graphfield;
-              for(auto& column : columns){
-                  auto name = column.get_name();
-                  switch(column.get_type().get_type()){
-                       case nebula::cpp2::SupportedType::BOOL:                          
-                            Graphfield.type = k2::dto::FieldType::BOOL;
-                            Graphfield.name = name;
-                          //  Graphfield.descending = false;
-                          //  Graphfield.nullLast = false;
-                            TagSchema.fields.push_back(Graphfield);
-                            break;
-                        case nebula::cpp2::SupportedType::INT:
-                           Graphfield.type = k2::dto::FieldType::INT32T;
-                            Graphfield.name = name;
-                            TagSchema.fields.push_back(Graphfield);
-                            break;
-                        case nebula::cpp2::SupportedType::DOUBLE:
-                            Graphfield.type = k2::dto::FieldType::DOUBLE;
-                            Graphfield.name = name;
-                            TagSchema.fields.push_back(Graphfield);
-                            break;
-                        case nebula::cpp2::SupportedType::STRING:
-                            Graphfield.type = k2::dto::FieldType::STRING;
-                            Graphfield.name = name;
-                            TagSchema.fields.push_back(Graphfield);
-                            break;                       
-                        default:
-                        //todo : 处理不支持的数据类型
-                         LOG(ERROR) << "Unknown type " << static_cast<int>(column.get_type().get_type());
-                         break;
-                  }
-              }
-          }
-
-        k2graph::MySchemaCreateRequest myRequest{
-            .req = k2::dto::CreateSchemaRequest{
-                .collectionName = std::to_string(spaceID),
-                .schema = std::move(TagSchema)
-            },
-            .prom = new std::promise<k2::CreateSchemaResult>()
-        };
-
-        k2graph::pushQ(k2graph::SchemaCreateQ, myRequest);
-
-         try
-        { //future.get()时可能抛出异常           
-            auto result = myRequest.prom->get_future();
-            auto CreateSchemaResult  = result.get();
-            auto status = CreateSchemaResult.status;
-            if (!status.is2xxOK())
+            //自定义的schema字段
+            auto columns = req.get_schema().get_columns();
+            if (!columns.empty())
             {
-
-                std::cout<<"fail to create tag"<<std::endl;
-                std::cout << status << std::endl;
+                k2::dto::SchemaField Graphfield;
+                for (auto &column : columns)
+                {
+                    auto name = column.get_name();
+                    switch (column.get_type().get_type())
+                    {
+                    case nebula::cpp2::SupportedType::BOOL:
+                        Graphfield.type = k2::dto::FieldType::BOOL;
+                        Graphfield.name = name;
+                        //  Graphfield.descending = false;
+                        //  Graphfield.nullLast = false;
+                        TagSchema.fields.push_back(Graphfield);
+                        break;
+                    case nebula::cpp2::SupportedType::INT:
+                        Graphfield.type = k2::dto::FieldType::INT32T;
+                        Graphfield.name = name;
+                        TagSchema.fields.push_back(Graphfield);
+                        break;
+                    case nebula::cpp2::SupportedType::DOUBLE:
+                        Graphfield.type = k2::dto::FieldType::DOUBLE;
+                        Graphfield.name = name;
+                        TagSchema.fields.push_back(Graphfield);
+                        break;
+                    case nebula::cpp2::SupportedType::STRING:
+                        Graphfield.type = k2::dto::FieldType::STRING;
+                        Graphfield.name = name;
+                        TagSchema.fields.push_back(Graphfield);
+                        break;
+                    default:
+                        // todo : 处理不支持的数据类型
+                        LOG(ERROR) << "Unknown type " << static_cast<int>(column.get_type().get_type());
+                        break;
+                    }
+                }
             }
-            else
+
+            k2graph::MySchemaCreateRequest myRequest{
+                .req = k2::dto::CreateSchemaRequest{
+                    .collectionName = std::to_string(spaceID),
+                    .schema = std::move(TagSchema)},
+                .prom = new std::promise<k2::CreateSchemaResult>()};
+
+            k2graph::pushQ(k2graph::SchemaCreateQ, myRequest);
+
+            try
+            { // future.get()时可能抛出异常
+                auto result = myRequest.prom->get_future();
+                auto CreateSchemaResult = result.get();
+                auto status = CreateSchemaResult.status;
+                if (!status.is2xxOK())
+                {
+
+                    std::cout << "fail to create tag" << std::endl;
+                    std::cout << status << std::endl;
+                }
+                else
+                {
+                    std::cout << "success " << std::endl;
+                    resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+                }
+            }
+            catch (...)
             {
-                std::cout<<"success "<<std::endl;
-                resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
-
+                //  _return.code = ErrorCode::E_UNKNOWN;
+                //  return;
             }
-        }
-        catch (...)
-        {
-            //  _return.code = ErrorCode::E_UNKNOWN;
-            //  return;
-        }
-
 
             cpp2::ID thriftID;
             thriftID.set_tag_id(tagID);
-            resp_.set_id(thriftID);      
+            resp_.set_id(thriftID);
 
-         //leader ip
+            // leader ip
             nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
+            // std::sMeta = "127.0.0.1";
+            // inMeta = 9777;
 
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
             auto localMeatHost = hostAddrRet.value();
@@ -592,61 +688,102 @@ namespace nebula
             promise_.setValue(std::move(resp_));
             return f;
 
-            std::cout<<"create tag with k2 end\n";
-
-
-
+            std::cout << "create tag with k2 end\n";
         }
-/*
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_alterTag(const cpp2::AlterTagReq& req) {
-            auto* processor = AlterTagProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+        /*
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_alterTag(const cpp2::AlterTagReq& req) {
+                    auto* processor = AlterTagProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_dropTag(const cpp2::DropTagReq& req) {
-            auto* processor = DropTagProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-*/
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_dropTag(const cpp2::DropTagReq& req) {
+                    auto* processor = DropTagProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+        */
         folly::Future<cpp2::GetTagResp>
-        MetaServiceHandler::future_getTag(const cpp2::GetTagReq &req) {
-           std::cout<<"get tag called\n";
-           std::cout<<"get tag end\n";
-        }
+        MetaServiceHandler::future_getTag(const cpp2::GetTagReq &req)
+        {
+            std::cout << "get tag called\n";
+            folly::Promise<cpp2::GetTagResp> promise_;
+            auto f = promise_.getFuture();
+            cpp2::GetTagResp resp_;
 
+            auto spaceId = req.get_space_id();
+            auto tagName = req.get_tag_name();
+            int32_t tagId;
+
+            //通过tagName 找到tagID
+            auto iter = SpaceSchemaNameIDMap.find(std::make_pair(spaceId, tagName));
+            if (iter != SpaceSchemaNameIDMap.end())
+            {
+                tagId = iter->second;
+                std::cout << "tag find\n";
+                std::cout << "tag id is:" << tagId << std::endl;
+            }
+
+            cpp2::TagItem item;
+            item = SpaceTagMap[std::make_pair(spaceId, tagId)];
+            nebula::cpp2::Schema schemaValue;
+            schemaValue = item.get_schema();
+
+            std::cout << "Get Tag SpaceID: " << req.get_space_id()
+                      << ", tagName: " << req.get_tag_name()
+                      << ", version " << req.get_version();
+
+            std::cout << "spaceId is " << spaceId
+                      << ",tag id is" << tagId
+                      << ", version " << req.get_version();
+            ;
+
+            resp_.set_schema(schemaValue);
+
+            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+
+            nebula::cpp2::HostAddr host_addr;
+            // std::sMeta = "127.0.0.1";
+            // inMeta = 9777;
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+            auto localMeatHost = hostAddrRet.value();
+            host_addr.set_ip(localMeatHost.first);
+            host_addr.set_port(localMeatHost.second);
+            resp_.set_leader(host_addr);
+
+            promise_.setValue(std::move(resp_));
+            std::cout << "get tag end\n";
+        }
 
         folly::Future<cpp2::ListTagsResp>
-        MetaServiceHandler::future_listTags(const cpp2::ListTagsReq& req) {
-            std::cout << "list tags called\n" ;
-            folly::Promise<cpp2::ListTagsResp> promise_ ;
+        MetaServiceHandler::future_listTags(const cpp2::ListTagsReq &req)
+        {
+            std::cout << "list tags called\n";
+            folly::Promise<cpp2::ListTagsResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ListTagsResp resp_;
 
             auto spaceId = req.get_space_id();
+            std::cout << "list tags() spaceID is" << spaceId << std::endl;
 
             decltype(resp_.tags) tags;
 
-            for(auto &iter:SpaceTagMap){
-                if(iter.first.first == spaceId)
-                {   
-                    std::cout<<iter.first.first;
+            for (auto &iter : SpaceTagMap)
+            {
+                if (iter.first.first == spaceId)
+                {
+                    std::cout << "spaceId " << iter.first.first;
                     tags.emplace_back(iter.second);
-
                 }
-            
             }
 
             resp_.set_tags(std::move(tags));
-          
+
             resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
 
-
-
             nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
+            //   std::sMeta = "127.0.0.1";
+            //   inMeta = 9777;
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
             auto localMeatHost = hostAddrRet.value();
             host_addr.set_ip(localMeatHost.first);
@@ -654,50 +791,50 @@ namespace nebula
             resp_.set_leader(host_addr);
 
             promise_.setValue(std::move(resp_));
-            std::cout << "list tags end\n" ;
+            std::cout << "list tags end\n";
             return f;
-
         }
 
-/*
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_createEdge(const cpp2::CreateEdgeReq& req) {
-            auto* processor = CreateEdgeProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+        /*
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_createEdge(const cpp2::CreateEdgeReq& req) {
+                    auto* processor = CreateEdgeProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_alterEdge(const cpp2::AlterEdgeReq& req) {
-            auto* processor = AlterEdgeProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_alterEdge(const cpp2::AlterEdgeReq& req) {
+                    auto* processor = AlterEdgeProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_dropEdge(const cpp2::DropEdgeReq& req) {
-            auto* processor = DropEdgeProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_dropEdge(const cpp2::DropEdgeReq& req) {
+                    auto* processor = DropEdgeProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::GetEdgeResp>
-        MetaServiceHandler::future_getEdge(const cpp2::GetEdgeReq& req) {
-            auto* processor = GetEdgeProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-*/
+                folly::Future<cpp2::GetEdgeResp>
+                MetaServiceHandler::future_getEdge(const cpp2::GetEdgeReq& req) {
+                    auto* processor = GetEdgeProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+        */
         folly::Future<cpp2::ListEdgesResp>
-        MetaServiceHandler::future_listEdges(const cpp2::ListEdgesReq& req) {
-           // auto* processor = ListEdgesProcessor::instance(kvstore_);
-           // RETURN_FUTURE(processor);
-          // std::cout<<"list edge called\n\n";
-            folly::Promise<cpp2::ListEdgesResp> promise_ ;
+        MetaServiceHandler::future_listEdges(const cpp2::ListEdgesReq &req)
+        {
+            // auto* processor = ListEdgesProcessor::instance(kvstore_);
+            // RETURN_FUTURE(processor);
+            // std::cout<<"list edge called\n\n";
+            folly::Promise<cpp2::ListEdgesResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ListEdgesResp resp_;
 
             resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
 
             nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
+            //  std::sMeta = "127.0.0.1";
+            //   inMeta = 9777;
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
             auto localMeatHost = hostAddrRet.value();
             host_addr.set_ip(localMeatHost.first);
@@ -707,37 +844,38 @@ namespace nebula
             promise_.setValue(std::move(resp_));
             return f;
         }
-/*
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_createTagIndex(const cpp2::CreateTagIndexReq& req) {
-            auto* processor = CreateTagIndexProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+        /*
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_createTagIndex(const cpp2::CreateTagIndexReq& req) {
+                    auto* processor = CreateTagIndexProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_dropTagIndex(const cpp2::DropTagIndexReq& req) {
-            auto* processor = DropTagIndexProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_dropTagIndex(const cpp2::DropTagIndexReq& req) {
+                    auto* processor = DropTagIndexProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::GetTagIndexResp>
-        MetaServiceHandler::future_getTagIndex(const cpp2::GetTagIndexReq &req) {
-            auto* processor = GetTagIndexProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-*/
+                folly::Future<cpp2::GetTagIndexResp>
+                MetaServiceHandler::future_getTagIndex(const cpp2::GetTagIndexReq &req) {
+                    auto* processor = GetTagIndexProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+        */
         folly::Future<cpp2::ListTagIndexesResp>
-        MetaServiceHandler::future_listTagIndexes(const cpp2::ListTagIndexesReq& req) {
-                      //  std::cout << "list tagIndexes called\n" ;
-            folly::Promise<cpp2::ListTagIndexesResp> promise_ ;
+        MetaServiceHandler::future_listTagIndexes(const cpp2::ListTagIndexesReq &req)
+        {
+            //  std::cout << "list tagIndexes called\n" ;
+            folly::Promise<cpp2::ListTagIndexesResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ListTagIndexesResp resp_;
 
             resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
 
             nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
+            //   std::sMeta = "127.0.0.1";
+            //   inMeta = 9777;
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
             auto localMeatHost = hostAddrRet.value();
             host_addr.set_ip(localMeatHost.first);
@@ -745,56 +883,56 @@ namespace nebula
             resp_.set_leader(host_addr);
 
             promise_.setValue(std::move(resp_));
-            //std::cout << "list tagIndexes end\n" ;
+            // std::cout << "list tagIndexes end\n" ;
             return f;
-
         }
-/*
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_rebuildTagIndex(const cpp2::RebuildIndexReq& req) {
-            auto* processor = RebuildTagIndexProcessor::instance(kvstore_, adminClient_.get());
-            RETURN_FUTURE(processor);
-        }
+        /*
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_rebuildTagIndex(const cpp2::RebuildIndexReq& req) {
+                    auto* processor = RebuildTagIndexProcessor::instance(kvstore_, adminClient_.get());
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::ListIndexStatusResp>
-        MetaServiceHandler::future_listTagIndexStatus(const cpp2::ListIndexStatusReq& req) {
-            auto* processor = ListTagIndexStatusProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+                folly::Future<cpp2::ListIndexStatusResp>
+                MetaServiceHandler::future_listTagIndexStatus(const cpp2::ListIndexStatusReq& req) {
+                    auto* processor = ListTagIndexStatusProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_createEdgeIndex(const cpp2::CreateEdgeIndexReq& req) {
-            auto* processor = CreateEdgeIndexProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_createEdgeIndex(const cpp2::CreateEdgeIndexReq& req) {
+                    auto* processor = CreateEdgeIndexProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_dropEdgeIndex(const cpp2::DropEdgeIndexReq& req) {
-            auto* processor = DropEdgeIndexProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_dropEdgeIndex(const cpp2::DropEdgeIndexReq& req) {
+                    auto* processor = DropEdgeIndexProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::GetEdgeIndexResp>
-        MetaServiceHandler::future_getEdgeIndex(const cpp2::GetEdgeIndexReq& req) {
-            auto* processor = GetEdgeIndexProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+                folly::Future<cpp2::GetEdgeIndexResp>
+                MetaServiceHandler::future_getEdgeIndex(const cpp2::GetEdgeIndexReq& req) {
+                    auto* processor = GetEdgeIndexProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-*/
+        */
         folly::Future<cpp2::ListEdgeIndexesResp>
-        MetaServiceHandler::future_listEdgeIndexes(const cpp2::ListEdgeIndexesReq& req) {
-           // auto* processor = ListEdgeIndexesProcessor::instance(kvstore_);
-           // RETURN_FUTURE(processor);
-            //std::cout << "list EdgeIndexes called\n" ;
-            folly::Promise<cpp2::ListEdgeIndexesResp> promise_ ;
+        MetaServiceHandler::future_listEdgeIndexes(const cpp2::ListEdgeIndexesReq &req)
+        {
+            // auto* processor = ListEdgeIndexesProcessor::instance(kvstore_);
+            // RETURN_FUTURE(processor);
+            // std::cout << "list EdgeIndexes called\n" ;
+            folly::Promise<cpp2::ListEdgeIndexesResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ListEdgeIndexesResp resp_;
 
             resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
 
             nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
+            //    std::sMeta = "127.0.0.1";
+            //   inMeta = 9777;
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
             auto localMeatHost = hostAddrRet.value();
             host_addr.set_ip(localMeatHost.first);
@@ -802,53 +940,59 @@ namespace nebula
             resp_.set_leader(host_addr);
 
             promise_.setValue(std::move(resp_));
-          //  std::cout << "list edgeIndexes end\n" ;
+            //  std::cout << "list edgeIndexes end\n" ;
             return f;
-           
         }
-/*
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_rebuildEdgeIndex(const cpp2::RebuildIndexReq& req) {
-            auto* processor = RebuildEdgeIndexProcessor::instance(kvstore_, adminClient_.get());
-            RETURN_FUTURE(processor);
-        }
+        /*
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_rebuildEdgeIndex(const cpp2::RebuildIndexReq& req) {
+                    auto* processor = RebuildEdgeIndexProcessor::instance(kvstore_, adminClient_.get());
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::ListIndexStatusResp>
-        MetaServiceHandler::future_listEdgeIndexStatus(const cpp2::ListIndexStatusReq& req) {
-            auto* processor = ListEdgeIndexStatusProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-        */
+                folly::Future<cpp2::ListIndexStatusResp>
+                MetaServiceHandler::future_listEdgeIndexStatus(const cpp2::ListIndexStatusReq& req) {
+                    auto* processor = ListEdgeIndexStatusProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+                */
         folly::Future<cpp2::HBResp>
         MetaServiceHandler::future_heartBeat(const cpp2::HBReq &req)
         {
             // auto* processor = HBProcessor::instance(kvstore_, clusterId_, &heartBeatStat_);
             // RETURN_FUTURE(processor);
-        //    std::cout << "heartbeat called" << "\n\n\n";
+            //    std::cout << "heartbeat called" << "\n\n\n";
             folly::Promise<cpp2::HBResp> promise_;
             auto f = promise_.getFuture();
             cpp2::HBResp resp_;
 
-            nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
+            HostAddr host(req.host.ip, req.host.port);
+            if (req.get_in_storaged())
+            {
+                std::cout << "from storage:req.host.port is:" << req.host.port << "\n";
+                auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+                auto localMeatHost = hostAddrRet.value();
+                nebula::cpp2::HostAddr host_addr;
+                host_addr.set_ip(localMeatHost.first);
+                host_addr.set_port(localMeatHost.second);
+                resp_.set_leader(host_addr);
+            }
+            else
+            {
+                std::cout << "from graph?:req.host.port is:" << req.host.port << "\n";
+            }
 
-            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
-            auto localMeatHost = hostAddrRet.value();
-          //  std::cout << "ip is: " << localMeatHost.first << std::endl;
-          //  std::cout << "port is: " << localMeatHost.second << std::endl;
-            host_addr.set_ip(localMeatHost.first);
-            host_addr.set_port(localMeatHost.second);
-            resp_.set_leader(host_addr);
+            // std::sMeta = "127.0.0.1";
+            // inMeta = 9779;
 
-            int64_t lastUpdateTime = nebula::time::WallClock::fastNowInMilliSec();
+            int64_t lastUpdateTime = GlobalLastUpdateTime;
 
             resp_.set_last_update_time_in_ms(lastUpdateTime);
             resp_.set_cluster_id(clusterId_);
             resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
             // return resp;
             promise_.setValue(std::move(resp_));
-           // std::cout << "heart beat end\n\n";
+            // std::cout << "heart beat end\n\n";
 
             return f;
         }
@@ -890,7 +1034,7 @@ namespace nebula
         {
             // auto* processor = ListUsersProcessor::instance(kvstore_);
             // RETURN_FUTURE(processor);
-           // std::cout << "ListUsers called\n\n";
+            // std::cout << "ListUsers called\n\n";
             folly::Promise<cpp2::ListUsersResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ListUsersResp resp_;
@@ -937,97 +1081,95 @@ namespace nebula
         }
 */
         folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_regConfig(const cpp2::RegConfigReq &req) {
-        //    auto* processor = RegConfigProcessor::instance(kvstore_);
-        //    RETURN_FUTURE(processor);
-        //      std::cout<<"regCongig called\n";
+        MetaServiceHandler::future_regConfig(const cpp2::RegConfigReq &req)
+        {
+            //    auto* processor = RegConfigProcessor::instance(kvstore_);
+            //    RETURN_FUTURE(processor);
+            //      std::cout<<"regCongig called\n";
 
-            folly::Promise<cpp2::ExecResp> promise_ ;
+            folly::Promise<cpp2::ExecResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ExecResp resp_;
 
-              //error-code  始终都是成功
+            // error-code  始终都是成功
             resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
 
-            //leader ip
+            // leader ip
             nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
+            //  std::sMeta = "127.0.0.1";
+            //  inMeta = 9777;
 
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
             auto localMeatHost = hostAddrRet.value();
             host_addr.set_ip(localMeatHost.first);
             host_addr.set_port(localMeatHost.second);
-            resp_.set_leader(host_addr);  
+            resp_.set_leader(host_addr);
 
-            
             promise_.setValue(std::move(resp_));
-            return f;  
+            return f;
 
-         //   std::cout<<"regCongig end\n";
-             
+            //   std::cout<<"regCongig end\n";
         }
-/*
-        folly::Future<cpp2::GetConfigResp>
-        MetaServiceHandler::future_getConfig(const cpp2::GetConfigReq &req) {
-            auto* processor = GetConfigProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
+        /*
+                folly::Future<cpp2::GetConfigResp>
+                MetaServiceHandler::future_getConfig(const cpp2::GetConfigReq &req) {
+                    auto* processor = GetConfigProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_setConfig(const cpp2::SetConfigReq &req) {
-            auto* processor = SetConfigProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-*/
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_setConfig(const cpp2::SetConfigReq &req) {
+                    auto* processor = SetConfigProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+        */
         folly::Future<cpp2::ListConfigsResp>
-        MetaServiceHandler::future_listConfigs(const cpp2::ListConfigsReq &req) {
-           // auto* processor = ListConfigsProcessor::instance(kvstore_);
-           // RETURN_FUTURE(processor);
-         //  std::cout<<"ListConfig called\n";
-            folly::Promise<cpp2::ListConfigsResp> promise_ ;
+        MetaServiceHandler::future_listConfigs(const cpp2::ListConfigsReq &req)
+        {
+            // auto* processor = ListConfigsProcessor::instance(kvstore_);
+            // RETURN_FUTURE(processor);
+            //  std::cout<<"ListConfig called\n";
+            folly::Promise<cpp2::ListConfigsResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ListConfigsResp resp_;
 
-
-            //error-code  始终都是成功
+            // error-code  始终都是成功
             resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
 
-            //leader ip
+            // leader ip
             nebula::cpp2::HostAddr host_addr;
-            std::string MetaIp = "127.0.0.1";
-            int32_t MetaPort = 9777;
+            //  std::sMeta = "127.0.0.1";
+            //  inMeta = 9777;
 
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
             auto localMeatHost = hostAddrRet.value();
             host_addr.set_ip(localMeatHost.first);
             host_addr.set_port(localMeatHost.second);
-            resp_.set_leader(host_addr);  
+            resp_.set_leader(host_addr);
 
-          // std::cout<<"ListConfig end\n";
-           promise_.setValue(std::move(resp_));
-           return f;
+            // std::cout<<"ListConfig end\n";
+            promise_.setValue(std::move(resp_));
+            return f;
+        }
+        /*
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_createSnapshot(const cpp2::CreateSnapshotReq& req) {
+                    auto* processor = CreateSnapshotProcessor::instance(kvstore_, adminClient_.get());
+                    RETURN_FUTURE(processor);
+                }
 
-        }
-/*
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_createSnapshot(const cpp2::CreateSnapshotReq& req) {
-            auto* processor = CreateSnapshotProcessor::instance(kvstore_, adminClient_.get());
-            RETURN_FUTURE(processor);
-        }
+                folly::Future<cpp2::ExecResp>
+                MetaServiceHandler::future_dropSnapshot(const cpp2::DropSnapshotReq& req) {
+                    auto* processor = DropSnapshotProcessor::instance(kvstore_, adminClient_.get());
+                    RETURN_FUTURE(processor);
+                }
 
-        folly::Future<cpp2::ExecResp>
-        MetaServiceHandler::future_dropSnapshot(const cpp2::DropSnapshotReq& req) {
-            auto* processor = DropSnapshotProcessor::instance(kvstore_, adminClient_.get());
-            RETURN_FUTURE(processor);
-        }
-
-        folly::Future<cpp2::ListSnapshotsResp>
-        MetaServiceHandler::future_listSnapshots(const cpp2::ListSnapshotsReq& req) {
-            auto* processor = ListSnapshotsProcessor::instance(kvstore_);
-            RETURN_FUTURE(processor);
-        }
-        */
+                folly::Future<cpp2::ListSnapshotsResp>
+                MetaServiceHandler::future_listSnapshots(const cpp2::ListSnapshotsReq& req) {
+                    auto* processor = ListSnapshotsProcessor::instance(kvstore_);
+                    RETURN_FUTURE(processor);
+                }
+                */
 
     } // namespace meta
 } // namespace nebula
