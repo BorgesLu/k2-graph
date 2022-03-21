@@ -48,13 +48,13 @@ public:
 */
     folly::Future<cpp2::GetSpaceResp>
     future_getSpace(const cpp2::GetSpaceReq& req) override;
-/*
+
     folly::Future<cpp2::ListHostsResp>
     future_listHosts(const cpp2::ListHostsReq& req) override;
 
     folly::Future<cpp2::ListPartsResp>
     future_listParts(const cpp2::ListPartsReq& req) override;
-*/
+
     folly::Future<cpp2::GetPartsAllocResp>
     future_getPartsAlloc(const cpp2::GetPartsAllocReq& req) override;
 
@@ -80,38 +80,38 @@ public:
     folly::Future<cpp2::ScanResp>
     future_scan(const cpp2::ScanReq& req) override;
 */
-    /**
-     * Schema related operations.
-     * */
-/*
+    
+    // * Schema related operations.
+     
+
     folly::Future<cpp2::ExecResp>
     future_createTag(const cpp2::CreateTagReq& req) override;
-
+/*
     folly::Future<cpp2::ExecResp>
     future_alterTag(const cpp2::AlterTagReq& req) override;
 
     folly::Future<cpp2::ExecResp>
     future_dropTag(const cpp2::DropTagReq& req) override;
-
+*/
     folly::Future<cpp2::GetTagResp>
     future_getTag(const cpp2::GetTagReq &req) override;
-*/
+
     folly::Future<cpp2::ListTagsResp>
     future_listTags(const cpp2::ListTagsReq& req) override;
-/*
+
     folly::Future<cpp2::ExecResp>
     future_createEdge(const cpp2::CreateEdgeReq& req) override;
-
+/*
     folly::Future<cpp2::ExecResp>
     future_alterEdge(const cpp2::AlterEdgeReq& req) override;
 
     folly::Future<cpp2::ExecResp>
     future_dropEdge(const cpp2::DropEdgeReq& req) override;
-
+*/
     folly::Future<cpp2::GetEdgeResp>
     future_getEdge(const cpp2::GetEdgeReq& req) override;
 
-*/
+
     folly::Future<cpp2::ListEdgesResp>
     future_listEdges(const cpp2::ListEdgesReq& req) override;
 

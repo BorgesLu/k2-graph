@@ -73,12 +73,10 @@ namespace nebula
         static int32_t StoragePort = 9779; // Meta节点端口
         static std::string StorageIp = "127.0.0.1";
 
-
-
         //修改元信息的时候，更新这个数据
         int64_t GlobalLastUpdateTime;
 
-        //std::unordered_map<GraphSpaceID, std::vector<PartitionID>> LeaderParts;
+        // std::unordered_map<GraphSpaceID, std::vector<PartitionID>> LeaderParts;
 
         std::unordered_map<GraphSpaceID, std::string> spaceIdNameMap_;
 
@@ -89,9 +87,10 @@ namespace nebula
 
         //维护schema的信息。减少对K2的访问和类型转换。
         //对点和边的schema是分开访问的，所以这里维护了两张表
-        // TagItem 内容：TagID, TagName,SchemaerVer,Schema
+        //Edge 的类型是 int_32,和tagID功能相同
+        // TagItem 和 EdgeItem 内容：SchemaID, SchemaName,SchemaerVer,Schema
         std::unordered_map<std::pair<GraphSpaceID, TagID>, cpp2::TagItem> SpaceTagMap;
-        std::unordered_map<std::pair<GraphSpaceID, EdgeType>, nebula::cpp2::Schema> SpaceEdgeTypeMap;
+        std::unordered_map<std::pair<GraphSpaceID, EdgeType>, cpp2::EdgeItem> SpaceEdgeTypeMap;
 
         //通用函数
 
@@ -104,26 +103,28 @@ namespace nebula
             }
             return -1;
         }
-//构造存储节点地址
-        nebula::cpp2::HostAddr getStorageAddr()    {
-        nebula::cpp2::HostAddr meta_host_addr;
-            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIP, MetaPort);
-            auto localMetaHost = hostAddrRet.value();
-            meta_host_addr.set_ip(localStorageHost.first);
-            meta_host_addr.set_port(localStorageHost.second);
-            return meta_host_addr;
-     }
 
-//构造存储meta 地址
-        nebula::cpp2::HostAddr getMetaAddr()    {
-        nebula::cpp2::HostAddr storage_host_addr;
+        //构造meta 节点地址
+        nebula::cpp2::HostAddr getMetaAddr()
+        {
+            nebula::cpp2::HostAddr meta_host_addr;
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+            auto localMetaHost = hostAddrRet.value();
+            meta_host_addr.set_ip(localMetaHost.first);
+            meta_host_addr.set_port(localMetaHost.second);
+            return meta_host_addr;
+        }
+
+        //构造存储Storage 地址
+        nebula::cpp2::HostAddr getStorageAddr()
+        {
+            nebula::cpp2::HostAddr storage_host_addr;
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(StorageIp, StoragePort);
             auto localStorageHost = hostAddrRet.value();
             storage_host_addr.set_ip(localStorageHost.first);
             storage_host_addr.set_port(localStorageHost.second);
             return storage_host_addr;
-     }
-
+        }
 
         folly::Future<cpp2::ListSpacesResp>
         MetaServiceHandler::future_listSpaces(const cpp2::ListSpacesReq &req)
@@ -454,7 +455,6 @@ namespace nebula
             cpp2::PartItem partItem;
             partItem.set_part_id(partid);
 
-
             auto storage_host_addr = getStorageAddr();
             std::vector<nebula::cpp2::HostAddr> partHosts{storage_host_addr};
             partItem.set_peers(partHosts);
@@ -598,6 +598,7 @@ namespace nebula
             TagSchema.setRangeKeyFieldsByName(std::vector<k2::String>{"VertexID", "TagID"});
 
             //自定义的schema字段
+            //数据类型映射 INT 对应 int_64t;
             auto columns = req.get_schema().get_columns();
             if (!columns.empty())
             {
@@ -615,7 +616,7 @@ namespace nebula
                         TagSchema.fields.push_back(Graphfield);
                         break;
                     case nebula::cpp2::SupportedType::INT:
-                        Graphfield.type = k2::dto::FieldType::INT32T;
+                        Graphfield.type = k2::dto::FieldType::INT64T;
                         Graphfield.name = name;
                         TagSchema.fields.push_back(Graphfield);
                         break;
@@ -734,9 +735,7 @@ namespace nebula
                       << ", version " << req.get_version();
 
             std::cout << "spaceId is " << spaceId
-                      << ",tag id is" << tagId
-                      << ", version " << req.get_version();
-            ;
+                      << ", tag id is " << tagId;
 
             resp_.set_schema(schemaValue);
 
@@ -753,6 +752,7 @@ namespace nebula
 
             promise_.setValue(std::move(resp_));
             std::cout << "get tag end\n";
+            return f;
         }
 
         folly::Future<cpp2::ListTagsResp>
@@ -795,31 +795,223 @@ namespace nebula
             return f;
         }
 
+        folly::Future<cpp2::ExecResp>
+        MetaServiceHandler::future_createEdge(const cpp2::CreateEdgeReq &req)
+        {
+            // auto* processor = CreateEdgeProcessor::instance(kvstore_);
+            // RETURN_FUTURE(processor);
+            std::cout << "\n\n\n\n\n\ncreate edge schema called\n\n\n\n\n\n\n";
+            folly::Promise<cpp2::ExecResp> promise_;
+            auto f = promise_.getFuture();
+            cpp2::ExecResp resp_;
+
+            bool isRepeated = false;
+            int32_t edgeTypeID;
+
+            auto spaceID = req.get_space_id();
+            auto edgeTypeName = req.get_edge_name();
+
+            auto iter = SpaceSchemaNameIDMap.find(std::make_pair(spaceID, edgeTypeName));
+            if (iter != SpaceSchemaNameIDMap.end())
+            {
+                resp_.set_code(cpp2::ErrorCode::E_EXISTED);
+                edgeTypeID = -1;
+                isRepeated = true;
+            }
+
+            if (!isRepeated)
+            {
+                edgeTypeID = SpaceSchemaNameIDMap.size();
+                edgeTypeID = edgeTypeID + 2; //从2 开始；
+                auto pair = std::make_pair(spaceID, edgeTypeName);
+                SpaceSchemaNameIDMap[pair] = edgeTypeID;
+            }
+
+             k2::dto::Schema EdgeSchema;
+            EdgeSchema.name = std::to_string(edgeTypeID);
+            EdgeSchema.version = 1;
+
+            //维护SpaceEdgeTypeMap  EdgeItem
+            auto pair = std::make_pair(spaceID, edgeTypeID);
+            cpp2::EdgeItem item;
+            int64_t version = 0; // nebula 的版本是从 0开始
+            item.set_edge_type(edgeTypeID);
+            item.set_edge_name(edgeTypeName);
+            item.set_version(version);
+            item.set_schema(req.schema);
+            SpaceEdgeTypeMap[pair] = item;
+
+            //更新心跳时间; todo 加锁保护
+            GlobalLastUpdateTime = nebula::time::WallClock::fastNowInMilliSec();
+
+            //Key 的部分: PartID-VertexID-EdgeType-Rank-VertexID
+            //保留rank,希望支持两个顶点之间有重复的边
+            //对于出边，第一个顶点是源顶点，对于入边则相反
+            EdgeSchema.fields = std::vector<k2::dto::SchemaField>{
+                 {k2::dto::FieldType::INT16T, "PartID", false, false},
+                {k2::dto::FieldType::INT64T, "FisrtVertexID", false, false},
+                {k2::dto::FieldType::INT32T, "EdgeTypeID", false, false},
+                {k2::dto::FieldType::INT64T, "Rank", false, false},
+                {k2::dto::FieldType::INT64T, "SecondVertexID", false, false}};
+
+            EdgeSchema.setPartitionKeyFieldsByName(std::vector<k2::String>{"PartID","FisrtVertexID"});
+            EdgeSchema.setRangeKeyFieldsByName(std::vector<k2::String>{"EdgeTypeID",
+            "Rank","SecondVertexID"});
+
+            auto columns = req.get_schema().get_columns();
+            if (!columns.empty())
+            {
+                k2::dto::SchemaField Graphfield;
+                for (auto &column : columns)
+                {
+                    auto name = column.get_name();
+                    switch (column.get_type().get_type())
+                    {
+                    case nebula::cpp2::SupportedType::BOOL:
+                        Graphfield.type = k2::dto::FieldType::BOOL;
+                        Graphfield.name = name;
+                        //  Graphfield.descending = false;
+                        //  Graphfield.nullLast = false;
+                        EdgeSchema.fields.push_back(Graphfield);
+                        break;
+                    case nebula::cpp2::SupportedType::INT:
+                        Graphfield.type = k2::dto::FieldType::INT64T;
+                        Graphfield.name = name;
+                        EdgeSchema.fields.push_back(Graphfield);
+                        break;
+                    case nebula::cpp2::SupportedType::DOUBLE:
+                        Graphfield.type = k2::dto::FieldType::DOUBLE;
+                        Graphfield.name = name;
+                        EdgeSchema.fields.push_back(Graphfield);
+                        break;
+                    case nebula::cpp2::SupportedType::STRING:
+                        Graphfield.type = k2::dto::FieldType::STRING;
+                        Graphfield.name = name;
+                        EdgeSchema.fields.push_back(Graphfield);
+                        break;
+                    default:
+                        // todo : 处理不支持的数据类型
+                        LOG(ERROR) << "Unknown type " << static_cast<int>(column.get_type().get_type());
+                        break;
+                    }
+                }
+            }
+
+             k2graph::MySchemaCreateRequest myRequest{
+             .req = k2::dto::CreateSchemaRequest{
+                    .collectionName = std::to_string(spaceID),
+                    .schema = std::move(EdgeSchema)},
+            .prom = new std::promise<k2::CreateSchemaResult>()};
+            k2graph::pushQ(k2graph::SchemaCreateQ, myRequest);   
+
+            try
+            { // future.get()时可能抛出异常
+                auto result = myRequest.prom->get_future();
+                auto CreateSchemaResult = result.get();
+                auto status = CreateSchemaResult.status;
+                if (!status.is2xxOK())
+                {
+
+                    std::cout << "fail to create edge" << std::endl;
+                    std::cout << status << std::endl;
+                }
+                else
+                {
+                    std::cout << "success " << std::endl;
+                    resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+                }
+            }
+            catch (...)
+            {
+                //  _return.code = ErrorCode::E_UNKNOWN;
+                //  return;
+            }
+
+            cpp2::ID thriftID;
+            thriftID.set_edge_type(edgeTypeID);
+            resp_.set_id(thriftID);
+
+            // leader ip
+            nebula::cpp2::HostAddr host_addr;
+            // std::sMeta = "127.0.0.1";
+            // inMeta = 9777;
+
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+            auto localMeatHost = hostAddrRet.value();
+            host_addr.set_ip(localMeatHost.first);
+            host_addr.set_port(localMeatHost.second);
+            resp_.set_leader(host_addr);
+
+            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+
+            promise_.setValue(std::move(resp_));
+            return f;
+
+            std::cout << "create edge with k2 end\n";
+
+
+
+
+        }
         /*
-                folly::Future<cpp2::ExecResp>
-                MetaServiceHandler::future_createEdge(const cpp2::CreateEdgeReq& req) {
-                    auto* processor = CreateEdgeProcessor::instance(kvstore_);
-                    RETURN_FUTURE(processor);
-                }
+                        folly::Future<cpp2::ExecResp>
+                        MetaServiceHandler::future_alterEdge(const cpp2::AlterEdgeReq& req) {
+                            auto* processor = AlterEdgeProcessor::instance(kvstore_);
+                            RETURN_FUTURE(processor);
+                        }
 
-                folly::Future<cpp2::ExecResp>
-                MetaServiceHandler::future_alterEdge(const cpp2::AlterEdgeReq& req) {
-                    auto* processor = AlterEdgeProcessor::instance(kvstore_);
-                    RETURN_FUTURE(processor);
-                }
+                        folly::Future<cpp2::ExecResp>
+                        MetaServiceHandler::future_dropEdge(const cpp2::DropEdgeReq& req) {
+                            auto* processor = DropEdgeProcessor::instance(kvstore_);
+                            RETURN_FUTURE(processor);
+                        }
+*/
 
-                folly::Future<cpp2::ExecResp>
-                MetaServiceHandler::future_dropEdge(const cpp2::DropEdgeReq& req) {
-                    auto* processor = DropEdgeProcessor::instance(kvstore_);
-                    RETURN_FUTURE(processor);
-                }
+        folly::Future<cpp2::GetEdgeResp>
+        MetaServiceHandler::future_getEdge(const cpp2::GetEdgeReq& req) {
+            std::cout << "get edge called\n";
+            folly::Promise<cpp2::GetEdgeResp> promise_;
+            auto f = promise_.getFuture();
+            cpp2::GetEdgeResp resp_;
 
-                folly::Future<cpp2::GetEdgeResp>
-                MetaServiceHandler::future_getEdge(const cpp2::GetEdgeReq& req) {
-                    auto* processor = GetEdgeProcessor::instance(kvstore_);
-                    RETURN_FUTURE(processor);
-                }
-        */
+            auto spaceId = req.get_space_id();
+            auto edgeName = req.get_edge_name();
+            int32_t edgeTypeID;
+
+            //通过tagName 找到tagID
+            auto iter = SpaceSchemaNameIDMap.find(std::make_pair(spaceId, edgeName));
+            if (iter != SpaceSchemaNameIDMap.end())
+            {
+                edgeTypeID = iter->second;
+                std::cout << "edge find\n";
+                std::cout << "edge id is:" << edgeTypeID << std::endl;
+            }
+
+            cpp2::EdgeItem item;
+            item = SpaceEdgeTypeMap[std::make_pair(spaceId, edgeTypeID)];
+            nebula::cpp2::Schema schemaValue;
+            schemaValue = item.get_schema();
+
+              resp_.set_schema(schemaValue);
+
+            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+            nebula::cpp2::HostAddr host_addr;
+            // std::sMeta = "127.0.0.1";
+            // inMeta = 9777;
+            auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
+            auto localMeatHost = hostAddrRet.value();
+            host_addr.set_ip(localMeatHost.first);
+            host_addr.set_port(localMeatHost.second);
+            resp_.set_leader(host_addr);
+
+            promise_.setValue(std::move(resp_));
+            std::cout << "get edge end\n";
+            return f;
+
+
+            
+        }
+                
         folly::Future<cpp2::ListEdgesResp>
         MetaServiceHandler::future_listEdges(const cpp2::ListEdgesReq &req)
         {
@@ -829,6 +1021,21 @@ namespace nebula
             folly::Promise<cpp2::ListEdgesResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ListEdgesResp resp_;
+
+            auto spaceId = req.get_space_id();
+
+            decltype(resp_.edges) edges;
+
+            for (auto &iter : SpaceEdgeTypeMap)
+            {
+                if (iter.first.first == spaceId)
+                {
+                    std::cout << "spaceId " << iter.first.first;
+                    edges.emplace_back(iter.second);
+                }
+            }
+
+            resp_.set_edges(std::move(edges));
 
             resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
 
