@@ -51,7 +51,7 @@ DEFINE_string(reader_handlers_type, "cpu", "Type of reader handlers, options: cp
 
 //写入时构建table，
 //写入数据时解码数据 读数据时 编码数据都可以使用
-static std::unordered_map<int32_t, std::shared_ptr<k2::dto::Schema>> table;
+static std::unordered_map<int32_t, std::shared_ptr<k2::dto::Schema>> SchemaTable;
 
 static std::string SerializeSKVRecordToString(k2::dto::SKVRecord &record)
 {
@@ -90,7 +90,67 @@ namespace nebula
 
             //通过return_columns 来获取tagID?
             auto colSize = req.get_return_columns().size();
-            std::cout << "getBound return_columns" << colSize << "\n";
+            std::cout << "getBound return_columns is " << colSize << "\n";
+            cpp2::PropDef first_col = req.get_return_columns().front();
+            auto col_name = first_col.get_name();
+            auto col_edgeID = first_col.get_id().get_edge_type();
+            std::cout << "get bound return_columns name is: " << col_name << "\n";
+            std::cout << "get bound return_columns id is: " << col_edgeID << "\n";
+
+            //构建返回的schema
+            std::shared_ptr<k2::dto::Schema> schema;
+            schema = SchemaTable[col_edgeID];
+
+            auto fields = schema->fields;
+            
+            /*
+            nebula::SchemaWriter schemaWriter;
+
+            //跳过前面的固定字段 PartID-VertexID-EdgeType-Rank-VertexID
+            for (auto field = fields.begin() + 5; field != fields.end(); field++)
+            {
+                auto name = field->name.c_str();
+                std::cout<<"L111 "<<"name is "<<name<<std::endl;
+                auto type = field->type;
+                std::cout<<"L111 "<<"type is "<<type<<std::endl;
+                switch (type)
+                { // VID类型对应INT64
+                case k2::dto::FieldType::STRING:
+                    schemaWriter.appendCol(name, nebula::cpp2::SupportedType::STRING);
+                    break;
+                case k2::dto::FieldType::INT16T:
+                case k2::dto::FieldType::INT32T:
+                case k2::dto::FieldType::INT64T:
+                    schemaWriter.appendCol(name, nebula::cpp2::SupportedType::INT);
+                    break;
+                case k2::dto::FieldType::FLOAT:
+                    schemaWriter.appendCol(name, nebula::cpp2::SupportedType::FLOAT);
+                    break;
+                case k2::dto::FieldType::DOUBLE:
+                    schemaWriter.appendCol(name, nebula::cpp2::SupportedType::DOUBLE);
+                    break;
+                case k2::dto::FieldType::BOOL:
+                    schemaWriter.appendCol(name, nebula::cpp2::SupportedType::BOOL);
+                    break;
+                default:
+                    //构造错误信息,并返回
+                    // TODO：考虑多个顶点出错的情况，是直接返回，还是将正确的执行后返回
+                    cpp2::ResultCode rescode;
+                    rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                    failed_codes.emplace_back(rescode);
+                    responseCommon.set_failed_codes(failed_codes);
+                    resp_.set_result(responseCommon);
+                    return resp_;
+                }
+            }
+
+            nebula::cpp2::Schema edge_schema = schemaWriter.moveSchema();
+            auto nebula_schema = std::make_shared<nebula::ResultSchemaProvider>(edge_schema);
+            nebula::dataman::NebulaCodecImpl codec;
+            */
+            //构建返回的 vertex_schema  不需要返回schema 信息
+           // std::unordered_map<nebula::cpp2::TagID, nebula::cpp2::Schema> my_edge_schema;
+           // my_edge_schema.insert(std::make_pair(col_edgeID, edge_schema));
 
             //开始一个事务
             k2::K2TxnOptions options{};
@@ -118,6 +178,8 @@ namespace nebula
             std::string spaceName = std::to_string(spaceID);
             //保存返回的顶点和边的数据
             std::vector<cpp2::VertexData> scan_vertices;
+           //返回的边的总数量，默认设为一
+            int32_t edge_number = 1;
 
             for (auto iter = req.parts.begin(); iter != req.parts.end(); iter++)
             {
@@ -128,7 +190,8 @@ namespace nebula
                     // cpp2::VertexData vResp;
                     // process vertex 为每一个顶点遍历其邻居边
                     cpp2::VertexData vdata;
-                    // vdata.set_vertex_id();
+                    std::cout << "L186 vertexID is" << vertexID << "\n";
+                     vdata.set_vertex_id(vertexID);
                     std::vector<cpp2::EdgeData> edge_data_vector;
                     std::shared_ptr<k2::Query> scan = nullptr;
                     for (auto edgeType : req.edge_types)
@@ -195,8 +258,21 @@ namespace nebula
                         pushQ(k2graph::scanReadTxQ, std::move(scan_request));
 
                         k2::QueryResult scan_result = scan_request.prom->get_future().get();
+                        auto status = scan_result.status;
+                        std::cout << "\n255\n"
+                          << status << "\n";
                         std::vector<k2::dto::SKVRecord> scan_result_records(std::move(scan_result.records));
+                        std::cout << "L255 读上来的数据个数 " << scan_result_records.size() << "\n";
+                        edge_number = scan_result_records.size();
                         // std::vector<std::string> edge_vector;
+                           
+                       bool isSucceed = true;
+                        k2graph::MyEndTxnRequest end_txn_req{
+                            .mtr = mtr,
+                            .shouldCommit = isSucceed,
+                            .prom = new std::promise<k2::EndResult>()};
+
+                        pushQ(k2graph::EndTxnQ, end_txn_req);
 
                         std::vector<cpp2::IdAndProp> idAndProps;
                         //读skvrecord, 构造返回值
@@ -204,20 +280,29 @@ namespace nebula
                         {
                             // int64_t dstID = edge.deserializeField<int64_t>("SecondVertexID");
                             // int64_t dstID = static_cast<int64_t>(*edge);
-                            std::string edge_data = SerializeSKVRecordToString(*edge);
-                            int64_t dstID = atoi(edge_data.c_str());
-                            std::cout << "dstID form SKVRecord" << dstID;
+                            //std::string edge_data = SerializeSKVRecordToString(*edge);
+
+                            //int64_t dstID = atoi(edge_data.c_str());
+                            std::string name = "SecondVertexID";
+                            auto dstID = (*edge).deserializeField<int64_t>(name);
+                            std::cout << "\n"<<
+                            "dstID form SKVRecord is " <<(int64_t)* dstID << "\n\n";
+
                             cpp2::IdAndProp idAndProp;
-                            idAndProp.set_dst(dstID);
+                            idAndProp.set_dst((int64_t)*dstID);
+                            std::cout << "\n"<<
+                            "dstID form idAndProp is " <<idAndProp.get_dst()<< "\n\n";
+
                             idAndProps.emplace_back(std::move(idAndProp));
                         }
                         cpp2::EdgeData edge_Data;
                         edge_Data.set_type(edgeType);
                         edge_Data.set_edges(std::move(idAndProps));
-                        vdata.edge_data.emplace_back(std::move(edge_Data));
+                        edge_data_vector.emplace_back(std::move(edge_Data));
+                       // vdata.set_edge_data.emplace_back(std::move(edge_Data));
 
                     } // end of process vertex
-
+                    vdata.set_edge_data(std::move(edge_data_vector));
                     scan_vertices.emplace_back(std::move(vdata));
                 } // end of VID list
 
@@ -231,12 +316,20 @@ namespace nebula
 
             pushQ(k2graph::EndTxnQ, end_txn_req);
 
+            //resp_.set_edge_schema(std::move(my_edge_schema));
+           // std::cout << "L313 get_edge_schema()->size()" << resp_.get_edge_schema()->size() << "\n\n";
+            std::cout<<"scan_vertices is "<<scan_vertices.size()<<"\n\n";
+            //int32_t edge_number = 1;
+            resp_.set_total_edges(edge_number);
             resp_.set_vertices(std::move(scan_vertices));
             promise_.setValue(std::move(resp_));
-            std::cout << "getProp end\n";
+            std::cout << "getBound end\n";
             return f;
 
         } // end for getBound
+
+
+
         /*
                 folly::Future<cpp2::QueryStatsResponse>
                 StorageServiceHandler::future_boundStats(const cpp2::GetNeighborsRequest& req) {
@@ -273,11 +366,11 @@ namespace nebula
 
             //构建编码的schema
             std::shared_ptr<k2::dto::Schema> schema;
-            schema = table[col_tagID];
+            schema = SchemaTable[col_tagID];
 
             auto fields = schema->fields;
             nebula::SchemaWriter schemaWriter;
-            
+
             for (auto field = fields.begin(); field != fields.end(); field++)
             {
                 //跳过Key partID VertexID tagID
@@ -288,7 +381,7 @@ namespace nebula
                     continue;
                 }
                 auto name = field->name.c_str();
-                std::cout << "name is in L297:" << name;
+                std::cout << "field->type is in L291:" << field->type;
                 auto type = field->type;
                 switch (type)
                 { // VID类型对应INT64
@@ -357,13 +450,20 @@ namespace nebula
 
             //对每一个顶点构造一个skvrecord用于构造请求。
             auto spaceId = req.space_id;
+            // std::vector<int64_t> Vertex_ID_Vec;
+            int return_VID;
 
             for (auto iter = req.parts.begin(); iter != req.parts.end(); iter++)
             {
                 auto verticeIDs = iter->second;
+
+                // Vertex_ID_Vec(verticeIDs);
                 for (auto vertexid : verticeIDs)
                 {
                     //先获取schema
+                    return_VID = vertexid;
+                    std::cout << "return VID is: " << return_VID << "\n";
+
                     std::shared_ptr<k2::dto::Schema> schema;
                     auto tagID = col_tagID;
 
@@ -459,16 +559,13 @@ namespace nebula
                     }
                     auto name = field->name.c_str();
                     std::cout << "name 460 is" << name << "\n";
+                    //只支持 int_64的字段
                     auto skv_filed = MyReadResult.value.deserializeField<int64_t>(name);
-                    v_tag_data.emplace_back(skv_filed);
+                    std::cout << "name 463 is" << (int64_t)*skv_filed << "\n";
+                    v_tag_data.emplace_back(*skv_filed);
                 }
 
                 auto result_tag_data = codec.encode(v_tag_data, nebula_schema);
-                // SKVRecord 转换为 binary
-                std::string tag_data;
-                tag_data = SerializeSKVRecordToString(MyReadResult.value); //只有value,还是全部字段?
-                // std::cout<<"tag_data is "<<tag_data<<"\n";
-                // std::cout<<"result_tag_data is "<<result_tag_data<<"\n";
                 cpp2::VertexData vResp;
                 //限定一个顶点只有一个tag
                 std::vector<cpp2::TagData> tds;
@@ -477,9 +574,10 @@ namespace nebula
                 td.set_tag_id(tagID);
                 // td.set_data(std::move(result_tag_data));
                 td.set_data(std::move(result_tag_data));
-                int64_t vid = 101;
+                tds.emplace_back(std::move(td));
+               // int64_t vid = 101;
 
-                vResp.set_vertex_id(vid);
+                vResp.set_vertex_id(return_VID);
                 vResp.set_tag_data(std::move(tds));
 
                 vertices.emplace_back(std::move(vResp));
@@ -498,23 +596,20 @@ namespace nebula
 
             resp_.set_vertices(std::move(vertices));
             resp_.set_vertex_schema(std::move(my_vertex_schema));
-            std::cout<<"L500 "<<resp_.get_vertex_schema()->size()<<"\n\n";
+            std::cout << "L500 " << resp_.get_vertex_schema()->size() << "\n\n";
 
             promise_.setValue(std::move(resp_));
             std::cout << "getProp end\n";
             return f;
         }
 
-        /*
         folly::Future<cpp2::EdgePropResponse>
-        StorageServiceHandler::future_getEdgeProps(const cpp2::EdgePropRequest& req) {
-            auto* processor = QueryEdgePropsProcessor::instance(kvstore_,
-                                                                schemaMan_,
-                                                                &edgePropsQpsStat_,
-                                                                readerPool_.get());
-            RETURN_FUTURE(processor);
+        StorageServiceHandler::future_getEdgeProps(const cpp2::EdgePropRequest &req)
+        {
+            folly::Promise<cpp2::EdgePropResponse> promise_;
+            auto f = promise_.getFuture();
+            cpp2::EdgePropResponse resp_;
         }
-        */
 
         folly::Future<cpp2::ExecResponse>
         StorageServiceHandler::future_addVertices(const cpp2::AddVerticesRequest &req)
@@ -562,9 +657,9 @@ namespace nebula
                         //先获取schema
                         std::shared_ptr<k2::dto::Schema> schema;
                         auto tagID = tag.tag_id;
-                        if (table.find(tagID) != table.end())
+                        if (SchemaTable.find(tagID) != SchemaTable.end())
                         {
-                            schema = table[tagID];
+                            schema = SchemaTable[tagID];
                         }
                         else
                         { //没找到,需要获取schema，之后可以单独修改成一个函数
@@ -600,7 +695,7 @@ namespace nebula
                                     return f;
                                 }
                                 schema = schemaResult.schema;
-                                table[tagID] = schemaResult.schema;
+                                SchemaTable[tagID] = schemaResult.schema;
                             }
                             catch (...)
                             {
@@ -881,7 +976,7 @@ namespace nebula
             std::vector<cpp2::ResultCode> failed_codes;
 
             // edgeType(int32) <----> schema(k2) 映射表
-            std::unordered_map<int32_t, std::shared_ptr<k2::dto::Schema>> EdgeTypeTable;
+            // std::unordered_map<int32_t, std::shared_ptr<k2::dto::Schema>> EdgeTypeTable;
             std::vector<k2graph::MyWriteRequest> request_list;
             std::vector<k2::dto::SKVRecord> skvrecord_list;
 
@@ -901,9 +996,9 @@ namespace nebula
                         continue; //不保存负向的边
                     }
 
-                    if (EdgeTypeTable.find(edgeType) != EdgeTypeTable.end())
+                    if (SchemaTable.find(edgeType) != SchemaTable.end())
                     {
-                        schema = EdgeTypeTable[edgeType];
+                        schema = SchemaTable[edgeType];
                     }
                     else
                     {
@@ -935,7 +1030,7 @@ namespace nebula
                                 return f;
                             }
                             schema = schemaResult.schema;
-                            EdgeTypeTable[edgeType] = schemaResult.schema;
+                            SchemaTable[edgeType] = schemaResult.schema;
                         }
                         catch (...)
                         {
