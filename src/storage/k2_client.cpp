@@ -202,8 +202,8 @@ seastar::future<> PGK2Client::_pollReadQ() {
         auto fiter = _txns->find(req.mtr);
         if (fiter == _txns->end()) {
            // K2LOG_W(log::k2ss, "invalid txn id: {}", req.mtr);
-            req.prom->set_value(k2::ReadResult<k2::dto::SKVRecord>(k2::dto::K23SIStatus::OperationNotAllowed("invalid txn id"), k2::dto::SKVRecord()));
-            //req.prom->set_value(k2::ReadResult<k2::dto::SKVRecord>(k2::dto::K23SIStatus::OperationNotAllowed("invalid txn id")));
+           req.prom->set_value(k2::ReadResult<k2::dto::SKVRecord>(k2::dto::K23SIStatus::OperationNotAllowed("invalid txn id"), k2::dto::SKVRecord()));
+           // req.prom->set_value(k2::ReadResult<k2::dto::SKVRecord>(k2::dto::SKVRecord()));
             return seastar::make_ready_future();
         }
 
@@ -211,19 +211,57 @@ seastar::future<> PGK2Client::_pollReadQ() {
             // Parameters will be copied into a payload by transport so will be RDMA safe without extra copy
             return fiter->second.read(std::move(req.key), std::move(req.collectionName))
             .then([this, &req](auto&& readResult) {
-                //K2LOG_D(log::k2ss, "Key Read received: {}", readResult);
+               // K2LOG_D(log::k2ss, "Key Read received: {}", readResult);
                 req.prom->set_value(std::move(readResult));
             });
-        }
+        }      
+       // Copy SKVRecrod to make RDMA safe
+       // return fiter->second.read(req.record.deepCopy())
+       //    .then([this, &req](auto&& readResult) {
+       //         //K2LOG_D(log::k2ss, "Read received: {}", readResult);
+       //         req.prom->set_value(std::move(readResult));
+       //     });
+    });
+}
 
-        // Copy SKVRecrod to make RDMA safe
-        //使用这个接口，链接报错，未能找到bug
-       /* return fiter->second.read(req.record.deepCopy())
-            .then([this, &req](auto&& readResult) {
-               // K2LOG_D(log::k2ss, "Read received: {}", readResult);
-                req.prom->set_value(std::move(readResult));
+seastar::future<> PGK2Client::_pollCreateScanReadQ() {
+        return pollQ(k2graph::scanReadCreateTxQ, [this](auto& req) {
+       // K2LOG_D(log::k2ss, "Create scan... {}", req);
+        if (_stop) {
+            return seastar::make_exception_future(std::runtime_error("seastar app has been shutdown"));
+        }
+        // Parameters will be copied into a payload by transport so will be RDMA safe without extra copy
+        return _client->createQuery(req.collectionName, req.schemaName)
+            .then([this, &req](auto&& result) {
+               // K2LOG_D(log::k2ss, "Created scan... {}", result);
+                k2graph::CreateScanReadResult response {
+                    .status = std::move(result.status),
+                    .query = std::make_shared<k2::Query>(std::move(result.query))
+                };
+                req.prom->set_value(std::move(response));
             });
-            */
+    });
+
+}
+
+seastar::future<> PGK2Client::_pollScanReadQ() {
+    return pollQ(k2graph::scanReadTxQ, [this](auto& req) mutable {
+        //K2LOG_D(log::k2ss, "Scan... {}", req);
+        if (_stop) {
+            return seastar::make_exception_future(std::runtime_error("seastar app has been shutdown"));
+        }
+        auto fiter = _txns->find(req.mtr);
+        if (fiter == _txns->end()) {
+            //K2LOG_W(log::k2ss, "invalid txn id: {}", req.mtr);
+            req.prom->set_value(k2::QueryResult(k2::dto::K23SIStatus::OperationNotAllowed("invalid txn id")));
+            return seastar::make_ready_future();
+        }
+        req.query->copyPayloads();
+        return fiter->second.query(*req.query)
+            .then([this, &req](auto&& queryResult) {
+                //K2LOG_D(log::k2ss, "Scanned... {}, records: {}", queryResult, queryResult.records.size());
+                req.prom->set_value(std::move(queryResult));
+            });
     });
 }
 
@@ -236,6 +274,8 @@ seastar::future<> PGK2Client::_pollForWork() {
         _pollBeginQ(), 
         _pollEndQ(),
         _pollReadQ(),
+        _pollCreateScanReadQ(),
+        _pollScanReadQ(),
         _pollWriteQ())
         .discard_result();
 }

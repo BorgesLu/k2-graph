@@ -17,13 +17,13 @@ private:
     std::unordered_map<k2::dto::K23SI_MTR, k2::K2TxnHandle>* _txns;
 
     seastar::future<> _pollForWork();
-     seastar::future<> _pollBeginQ();
+    seastar::future<> _pollBeginQ();
     seastar::future<> _pollEndQ();
     seastar::future<> _pollSchemaGetQ();
     seastar::future<> _pollSchemaCreateQ();
     seastar::future<> _pollReadQ();
-    // seastar::future<> _pollCreateScanReadQ();
-    // seastar::future<> _pollScanReadQ();
+    seastar::future<> _pollCreateScanReadQ();
+    seastar::future<> _pollScanReadQ();
     seastar::future<> _pollWriteQ();
     // seastar::future<> _pollUpdateQ();
     seastar::future<> _pollCreateCollectionQ();

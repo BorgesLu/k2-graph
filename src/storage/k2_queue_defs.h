@@ -67,7 +67,7 @@ struct MyReadRequest {
   //  K2_DEF_FMT(ReadRequest, mtr, key, collectionName);
 };
 
-/*
+
 struct CreateScanReadResult {
     k2::Status status;
     std::shared_ptr<k2::Query> query;
@@ -77,18 +77,17 @@ struct CreateScanReadResult {
 struct MyScanReadCreateRequest {
     k2::String collectionName;
     k2::String schemaName;
-    std::promise<CreateScanReadResult> prom;
+    std::promise<CreateScanReadResult> *prom;
    // K2_DEF_FMT(ScanReadCreateRequest, collectionName, schemaName);
 };
-
 
 struct MyScanReadRequest {
     k2::dto::K23SI_MTR mtr;
     std::shared_ptr<k2::Query> query;
-    std::promise<k2::QueryResult> prom;
+    std::promise<k2::QueryResult> *prom;
   //  K2_DEF_FMT(ScanReadRequest, mtr);
 };
-*/
+
 
 
 
@@ -99,8 +98,9 @@ inline std::queue<MyWriteRequest> WriteRequestQ;
 inline std::queue<MyBeginTxnRequest> BeginTxnQ;
 inline std::queue<MyEndTxnRequest> EndTxnQ;
 inline std::queue<MyReadRequest> readTxQ;
-//inline std::queue<MyScanReadCreateRequest> scanReadCreateTxQ;
-//inline std::queue<MyScanReadRequest> scanReadTxQ;
+//range query
+inline std::queue<MyScanReadCreateRequest> scanReadCreateTxQ;
+inline std::queue<MyScanReadRequest> scanReadTxQ;
 
 inline volatile bool finish{false};
 template <typename Q, typename Request>
