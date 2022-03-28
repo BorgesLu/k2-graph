@@ -71,6 +71,36 @@ static std::string SerializeSKVRecordToString(k2::dto::SKVRecord &record)
 
     return serialized;
 }
+
+// 从K2-platform读取Schema
+static std::shared_ptr<k2::dto::Schema> GetSchemaFromK2(int64_t spaceID,int32_t schemaID )
+{
+    k2graph::MySchemaGetRequest request{
+        .collectionName = std::to_string(spaceID),
+        .schemaName = std::to_string(schemaID),
+        .prom = new std::promise<k2::GetSchemaResult>()};
+    pushQ(k2graph::SchemaGetQ, request);
+    try
+    {
+        auto result = request.prom->get_future();
+        auto schemaResult = result.get();
+         auto status = schemaResult.status;
+         if (!status.is2xxOK()){
+              std::cout << "获取schema时出错\n";
+         }
+        std::shared_ptr<k2::dto::Schema> schema = schemaResult.schema;
+        //跟新SchemaTable
+        SchemaTable[schemaID] = schema;
+        return schema;
+
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+    }
+    
+
+}
 namespace nebula
 {
     namespace storage
@@ -99,7 +129,13 @@ namespace nebula
 
             //构建返回的schema
             std::shared_ptr<k2::dto::Schema> schema;
-            schema = SchemaTable[col_edgeID];
+            
+            if(SchemaTable.find(col_edgeID)!= SchemaTable.end()){
+                    schema = SchemaTable[col_edgeID];
+            }
+            else{
+                schema = GetSchemaFromK2(req.get_space_id(),col_edgeID);
+            }
 
             auto fields = schema->fields;
             
