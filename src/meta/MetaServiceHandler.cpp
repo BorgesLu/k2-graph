@@ -83,7 +83,7 @@ namespace nebula
         using schemaID = int32_t;
 
         //顶点和边的schema name都不允许重复，不同space 之间的名称相互隔离
-        std::unordered_map<std::pair<GraphSpaceID, std::string>, schemaID> SpaceSchemaNameIDMap;
+        std::unordered_map<std::pair<GraphSpaceID, std::string>, schemaID>  SpaceSchemaNameIDMap;
 
         //维护schema的信息。减少对K2的访问和类型转换。
         //对点和边的schema是分开访问的，所以这里维护了两张表
@@ -225,7 +225,7 @@ namespace nebula
         folly::Future<cpp2::ExecResp>
         MetaServiceHandler::future_createSpace(const cpp2::CreateSpaceReq &req)
         {
-            std::cout << "Create space with k2 called!\n";
+            // std::cout << "new Create space with k2 called!\n";
             folly::Promise<cpp2::ExecResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ExecResp resp_;
@@ -244,7 +244,6 @@ namespace nebula
             {
                 endpoints.emplace_back(ep);
             }
-
             // rangeEnds
             std::vector<k2::String> rangeEnds;
             rangeEnds.push_back("");
@@ -260,7 +259,6 @@ namespace nebula
                     mySpaceID = -1;
                 }
             }
-
             if (!isRepeated)
             {
                 mySpaceID = spaceIdNameMap_.size();
@@ -274,7 +272,7 @@ namespace nebula
                 .req = k2::dto::CollectionCreateRequest{
                     .metadata{
                         .name = std::to_string(mySpaceID),
-                        .hashScheme = k2::dto::HashScheme::HashCRC32C,
+                        .hashScheme = k2::dto::HashScheme::Range,
                         .storageDriver = k2::dto::StorageDriver::K23SI,
                         .capacity{},
                         .retentionPeriod = 24h},
@@ -304,14 +302,139 @@ namespace nebula
             }
             catch (...)
             {
+                resp_.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                promise_.setValue(std::move(resp_));
+                return f;
+            }
+            //在新建的collection里创建一个新的schema，用于存储tagName到TagID的对应关系  因为不会存tagname的信息
+            k2::dto::Schema TagSchema;
+            TagSchema.name = std::to_string(0);
+            TagSchema.version = 1;
+            TagSchema.fields = std::vector<k2::dto::SchemaField>{
+                {k2::dto::FieldType::INT64T, "SpaceID", false, false},
+                {k2::dto::FieldType::STRING, "TagName", false, false},
+                {k2::dto::FieldType::INT32T, "TagID", false, false}
+            };
+            TagSchema.setPartitionKeyFieldsByName(std::vector<k2::String>{"SpaceID"});
+            TagSchema.setRangeKeyFieldsByName(std::vector<k2::String>{"TagName"});
+            k2graph::MySchemaCreateRequest myRequest1{
+                .req = k2::dto::CreateSchemaRequest{
+                    .collectionName = std::to_string(mySpaceID),
+                    .schema = std::move(TagSchema)},
+                .prom = new std::promise<k2::CreateSchemaResult>()};
+            k2graph::pushQ(k2graph::SchemaCreateQ, myRequest1);
+            try
+            { // future.get()时可能抛出异常
+                auto result1 = myRequest1.prom->get_future();
+                auto CreateSchemaResult = result1.get();
+                auto status = CreateSchemaResult.status;
+                if (!status.is2xxOK())
+                {
+
+                    std::cout << "fail to create tag" << std::endl;
+                    std::cout << status << std::endl;
+                    resp_.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                    promise_.setValue(std::move(resp_));
+                    return f;
+                }
+                else
+                {
+                    std::cout << "success " << std::endl;
+                    resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+                }
+            }
+            catch (...)
+            {
                 //  _return.code = ErrorCode::E_UNKNOWN;
                 //  return;
             }
+            std::cout << "tagname->id success " << std::endl;
+            //在新建的collection里创建一个新的schema，用于存储Vertex和TagID的对应关系 Schema:VertexID TagID
+            k2::dto::Schema Vertex2Schema;
+            Vertex2Schema.name = std::to_string(1);
+            Vertex2Schema.version = 1;
+            Vertex2Schema.fields = std::vector<k2::dto::SchemaField>{
+                {k2::dto::FieldType::INT64T, "VertexID", false, false},
+                {k2::dto::FieldType::INT32T, "TagID", false, false}
+            };
+            Vertex2Schema.setPartitionKeyFieldsByName(std::vector<k2::String>{"VertexID"});
+            Vertex2Schema.setRangeKeyFieldsByName(std::vector<k2::String>{"TagID"});
+            k2graph::MySchemaCreateRequest myRequest2{
+                .req = k2::dto::CreateSchemaRequest{
+                    .collectionName = std::to_string(mySpaceID),
+                    .schema = std::move(Vertex2Schema)},
+                .prom = new std::promise<k2::CreateSchemaResult>()};
+            k2graph::pushQ(k2graph::SchemaCreateQ, myRequest2);
+            try
+            { // future.get()时可能抛出异常
+                auto result2 = myRequest2.prom->get_future();
+                auto CreateSchemaResult = result2.get();
+                auto status = CreateSchemaResult.status;
+                if (!status.is2xxOK())
+                {
 
+                    std::cout << "fail to create tag" << std::endl;
+                    std::cout << status << std::endl;
+                    resp_.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                    promise_.setValue(std::move(resp_));
+                    return f;
+                }
+                else
+                {
+                    std::cout << "success " << std::endl;
+                    resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+                }
+            }
+            catch (...)
+            {
+                //  _return.code = ErrorCode::E_UNKNOWN;
+                //  return;
+            }
+            std::cout << "vertex->id success " << std::endl;
+            //在新建的collection里创建一个新的schema，用于存储Vertex和EdgeType的对应关系 Schema:VertexID EdgeType
+            k2::dto::Schema Vertex2Edge;
+            Vertex2Edge.name = std::to_string(2);
+            Vertex2Edge.version = 1;
+            Vertex2Edge.fields = std::vector<k2::dto::SchemaField>{
+                {k2::dto::FieldType::INT64T, "VertexID", false, false},
+                {k2::dto::FieldType::INT32T, "EdgeType", false, false}
+            };
+            Vertex2Edge.setPartitionKeyFieldsByName(std::vector<k2::String>{"VertexID"});
+            Vertex2Edge.setRangeKeyFieldsByName(std::vector<k2::String>{"EdgeType"});
+            k2graph::MySchemaCreateRequest myRequest3{
+                .req = k2::dto::CreateSchemaRequest{
+                    .collectionName = std::to_string(mySpaceID),
+                    .schema = std::move(Vertex2Edge)},
+                .prom = new std::promise<k2::CreateSchemaResult>()};
+            k2graph::pushQ(k2graph::SchemaCreateQ, myRequest3);
+            try
+            { // future.get()时可能抛出异常
+                auto result3 = myRequest3.prom->get_future();
+                auto CreateSchemaResult = result3.get();
+                auto status = CreateSchemaResult.status;
+                if (!status.is2xxOK())
+                {
+                    std::cout << "fail to create tag" << std::endl;
+                    std::cout << status << std::endl;
+                    resp_.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                    promise_.setValue(std::move(resp_));
+                    return f;
+                }
+                else
+                {
+                    std::cout << "success " << std::endl;
+                    resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+                }
+            }
+            catch (...)
+            {
+                //  _return.code = ErrorCode::E_UNKNOWN;
+                //  return;
+            }
+            std::cout << "vertex->edgetype success " << std::endl;
             cpp2::ID thriftID;
             thriftID.set_space_id(mySpaceID);
             resp_.set_id(thriftID);
-
             // leader ip
             nebula::cpp2::HostAddr host_addr;
             auto hostAddrRet = nebula::network::NetworkUtils::toHostAddr(MetaIp, MetaPort);
@@ -323,7 +446,7 @@ namespace nebula
             promise_.setValue(std::move(resp_));
             return f;
 
-            std::cout << "create space with k2 end\n";
+            // std::cout << "create space with k2 end\n";
         }
 
         /*
@@ -543,7 +666,8 @@ namespace nebula
         */
         folly::Future<cpp2::ExecResp>
         MetaServiceHandler::future_createTag(const cpp2::CreateTagReq &req)
-        {
+        {   //创建后把tagID对应的tagname存到底层 
+
             std::cout << "create tag called\n";
             folly::Promise<cpp2::ExecResp> promise_;
             auto f = promise_.getFuture();
@@ -565,7 +689,7 @@ namespace nebula
             if (!isRepeated)
             {
                 tagID = SpaceSchemaNameIDMap.size();
-                tagID = tagID + 2; //从2 开始；
+                tagID = tagID + 3; //从3 开始；
                 auto pair = std::make_pair(spaceID, tagName);
                 SpaceSchemaNameIDMap[pair] = tagID;
             }
@@ -656,11 +780,12 @@ namespace nebula
 
                     std::cout << "fail to create tag" << std::endl;
                     std::cout << status << std::endl;
+                    resp_.set_code(cpp2::ErrorCode::E_UNKNOWN);
                 }
                 else
                 {
                     std::cout << "success " << std::endl;
-                    resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+                    // resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
                 }
             }
             catch (...)
@@ -668,7 +793,97 @@ namespace nebula
                 //  _return.code = ErrorCode::E_UNKNOWN;
                 //  return;
             }
+            //暂时只先添加写入tagID->tagName的映射关系，删去map数据结构的操作后面修改
+            std::cout << "begin write" << std::endl;
+            k2::dto::Schema TagSchema1;
+            TagSchema1.name = std::to_string(0);
+            TagSchema1.version = 1;
+            TagSchema1.fields = std::vector<k2::dto::SchemaField>{
+                {k2::dto::FieldType::INT64T, "SpaceID", false, false},
+                {k2::dto::FieldType::STRING, "TagName", false, false},
+                {k2::dto::FieldType::INT32T, "TagID", false, false}
+            };
+            TagSchema1.setPartitionKeyFieldsByName(std::vector<k2::String>{"SpaceID"});
+            TagSchema1.setRangeKeyFieldsByName(std::vector<k2::String>{"TagName"});
+            k2::dto::SKVRecord skvRecord(std::to_string(spaceID), std::make_shared<k2::dto::Schema>(TagSchema1));
+            skvRecord.serializeNext<int64_t>(spaceID);
+            skvRecord.serializeNext<k2::String>(boost::any_cast<std::string>(tagName));
+            skvRecord.serializeNext<int32_t>(tagID);
+            std::cout << "begin txn" << std::endl;
+            //开始事务
+            k2::K2TxnOptions options{};
+            options.syncFinalize = true;
+            // auto start = k2::Clock::now();
+            k2graph::MyBeginTxnRequest qr{.opts = options,
+                                          .prom = new std::promise<k2pg::gate::K23SITxn>(),
+                                          .startTime = k2::Clock::now()};
+                                        //   .startTime = start};
+            
+            
+            auto BeginTxnQResult = qr.prom->get_future();
+            
+         //   sleep(1);
+            // std::cout << "l824" << std::endl;
+            pushQ(k2graph::BeginTxnQ, std::move(qr));
+            // std::cout << "l826" << std::endl;
+            k2::dto::K23SI_MTR mtr; //标识事务，之后的请求要用到
+            try
+            {
+                
+                // auto BeginTxnQResult = qr.prom.get_future();
+                //mtr = BeginTxnQResult.get();
 
+
+                mtr = BeginTxnQResult.get().GetMtr();
+                std::cout << "begin Txn success\n";
+            }
+            catch (...)
+            {
+                //构造错误信息,并返回
+                resp_.set_code(cpp2::ErrorCode::E_UNKNOWN);
+            }
+            //写入
+            k2graph::MyWriteRequest write_request{
+                .mtr = mtr,
+                .record = std::move(skvRecord), //从上面的序列化得出
+                .prom = new std::promise<k2::WriteResult>()};
+            auto WQResult = write_request.prom->get_future();
+            pushQ(k2graph::WriteRequestQ, std::move(write_request));
+            // std::cout << "write request success" << std::endl;
+            //获取写的结果
+            bool isSucceed = true;
+            try
+            {
+                auto WriteResult = WQResult.get();
+                auto status = WriteResult.status;
+                if (!status.is2xxOK())
+                {
+
+                    isSucceed = false;
+                    std::cout << status << std::endl;
+                }
+            }
+            catch (...)
+            {
+                isSucceed = false;
+            }
+            std::cout << "write success" << std::endl;
+            k2graph::MyEndTxnRequest end_txn_req{
+                .mtr = mtr,
+                .shouldCommit = isSucceed,
+                //.prom = new std::promise<k2::EndResult>()
+                .prom = new std::promise<k2::EndResult>()};
+            auto EndQResult = end_txn_req.prom->get_future();
+            pushQ(k2graph::EndTxnQ, std::move(end_txn_req));
+            auto EndResult = EndQResult.get();
+            auto status = EndResult.status;
+            if (!status.is2xxOK())
+            {
+                resp_.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                promise_.setValue(std::move(resp_));
+                return f;
+            }
+            std::cout << "end success" << std::endl;
             cpp2::ID thriftID;
             thriftID.set_tag_id(tagID);
             resp_.set_id(thriftID);
@@ -683,13 +898,15 @@ namespace nebula
             host_addr.set_ip(localMeatHost.first);
             host_addr.set_port(localMeatHost.second);
             resp_.set_leader(host_addr);
-
-            resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
-
+            if(isSucceed){
+                resp_.set_code(cpp2::ErrorCode::SUCCEEDED);
+            }
+            else{
+                resp_.set_code(cpp2::ErrorCode::E_UNKNOWN);
+            }
             promise_.setValue(std::move(resp_));
             return f;
 
-            std::cout << "create tag with k2 end\n";
         }
         /*
                 folly::Future<cpp2::ExecResp>
@@ -722,7 +939,7 @@ namespace nebula
             {
                 tagId = iter->second;
                 std::cout << "tag find\n";
-                std::cout << "tag id is:" << tagId << std::endl;
+                std::cout << "tag id is: " << tagId << std::endl;
             }
 
             cpp2::TagItem item;
@@ -730,12 +947,14 @@ namespace nebula
             nebula::cpp2::Schema schemaValue;
             schemaValue = item.get_schema();
 
-            std::cout << "Get Tag SpaceID: " << req.get_space_id()
-                      << ", tagName: " << req.get_tag_name()
-                      << ", version " << req.get_version();
+            // std::cout << "Get Tag SpaceID: " << req.get_space_id()
+            //           << ", tagName: " << req.get_tag_name()
+            //           << ", version " << req.get_version();
 
-            std::cout << "spaceId is " << spaceId
-                      << ", tag id is " << tagId;
+            // std::cout << "spaceId is " << spaceId
+            //           << ",tag id is" << tagId
+            //           << ", version " << req.get_version();
+            // ;
 
             resp_.set_schema(schemaValue);
 
@@ -751,14 +970,14 @@ namespace nebula
             resp_.set_leader(host_addr);
 
             promise_.setValue(std::move(resp_));
-            std::cout << "get tag end\n";
-            return f;
+             return f;
+            // std::cout << "get tag end\n";
         }
 
         folly::Future<cpp2::ListTagsResp>
         MetaServiceHandler::future_listTags(const cpp2::ListTagsReq &req)
         {
-            std::cout << "list tags called\n";
+            // std::cout << "list tags called\n";
             folly::Promise<cpp2::ListTagsResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ListTagsResp resp_;
@@ -800,7 +1019,7 @@ namespace nebula
         {
             // auto* processor = CreateEdgeProcessor::instance(kvstore_);
             // RETURN_FUTURE(processor);
-            std::cout << "\n\n\n\n\n\ncreate edge schema called\n\n\n\n\n\n\n";
+            // std::cout << "\n\n\n\n\n\ncreate edge schema called\n\n\n\n\n\n\n";
             folly::Promise<cpp2::ExecResp> promise_;
             auto f = promise_.getFuture();
             cpp2::ExecResp resp_;
@@ -822,12 +1041,12 @@ namespace nebula
             if (!isRepeated)
             {
                 edgeTypeID = SpaceSchemaNameIDMap.size();
-                edgeTypeID = edgeTypeID + 2; //从2 开始；
+                edgeTypeID = edgeTypeID + 3; //从3 开始；
                 auto pair = std::make_pair(spaceID, edgeTypeName);
                 SpaceSchemaNameIDMap[pair] = edgeTypeID;
             }
 
-             k2::dto::Schema EdgeSchema;
+            k2::dto::Schema EdgeSchema;
             EdgeSchema.name = std::to_string(edgeTypeID);
             EdgeSchema.version = 1;
 
@@ -848,7 +1067,7 @@ namespace nebula
             //保留rank,希望支持两个顶点之间有重复的边
             //对于出边，第一个顶点是源顶点，对于入边则相反
             EdgeSchema.fields = std::vector<k2::dto::SchemaField>{
-                 {k2::dto::FieldType::INT16T, "PartID", false, false},
+                {k2::dto::FieldType::INT16T, "PartID", false, false},
                 {k2::dto::FieldType::INT64T, "FisrtVertexID", false, false},
                 {k2::dto::FieldType::INT32T, "EdgeTypeID", false, false},
                 {k2::dto::FieldType::INT64T, "Rank", false, false},
@@ -911,7 +1130,6 @@ namespace nebula
                 auto status = CreateSchemaResult.status;
                 if (!status.is2xxOK())
                 {
-
                     std::cout << "fail to create edge" << std::endl;
                     std::cout << status << std::endl;
                 }
@@ -925,6 +1143,7 @@ namespace nebula
             {
                 //  _return.code = ErrorCode::E_UNKNOWN;
                 //  return;
+                std::cout << "fail to create edge" << std::endl;
             }
 
             cpp2::ID thriftID;
@@ -946,12 +1165,6 @@ namespace nebula
 
             promise_.setValue(std::move(resp_));
             return f;
-
-            std::cout << "create edge with k2 end\n";
-
-
-
-
         }
         /*
                         folly::Future<cpp2::ExecResp>
@@ -1005,11 +1218,8 @@ namespace nebula
             resp_.set_leader(host_addr);
 
             promise_.setValue(std::move(resp_));
-            std::cout << "get edge end\n";
             return f;
-
-
-            
+            // std::cout << "get edge end\n";
         }
                 
         folly::Future<cpp2::ListEdgesResp>

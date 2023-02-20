@@ -99,7 +99,8 @@ seastar::future<> PGK2Client::_pollBeginQ() {
             .then([this, &req](auto&& txn) {
                 auto mtr = txn.mtr();
                 (*_txns)[txn.mtr()] = std::move(txn);
-                req.prom->set_value(mtr);  // send a copy to the promise
+                // req.prom->set_value(mtr);  // send a copy to the promise
+                req.prom->set_value(k2pg::gate::K23SITxn(mtr,req.startTime));
             });
     });
 }
@@ -144,12 +145,12 @@ seastar::future<> PGK2Client::_pollSchemaCreateQ() {
         if (_stop) {
             return seastar::make_exception_future(std::runtime_error("seastar app has been shutdown"));
         }
-        std::cout<<"\n\n_client->createSchema \n";
-        std::cout<<req.req.collectionName<<std::endl;
-
+        // std::cout<<"\n\n_client->createSchema \n";
+        // std::cout<<req.req.collectionName<<std::endl;
+        // std::cout<<"line149   "<<req.req.schema.fields[3].type<<"\n\n";s
         return _client->createSchema(std::move(req.req.collectionName), std::move(req.req.schema))
             .then([this, &req](auto &&result) {
-                std::cout<<"\n\nafter _clientcreateSchema";
+                // std::cout<<"\n\nafter _clientcreateSchema\n\n";
                 //K2LOG_D(log::k23si, "Schema create received {}", result);
                 req.prom->set_value(std::move(result));
             });
@@ -176,7 +177,7 @@ seastar::future<> PGK2Client::_pollCreateCollectionQ() {
 }
 
 
-/*
+
 seastar::future<> PGK2Client::_pollWriteQ() {
     return pollQ(k2graph::WriteRequestQ, [this](auto& req) mutable {
         if (_stop) {
@@ -188,13 +189,13 @@ seastar::future<> PGK2Client::_pollWriteQ() {
             return seastar::make_ready_future();
         }
         k2::dto::SKVRecord copy = req.record.deepCopy();
-        return fiter->second.write(copy, req.erase, req.precondition)
+        return fiter->second.write(copy, false, k2::dto::ExistencePrecondition::None)
             .then([this, &req](auto&& writeResult) {
                 req.prom->set_value(std::move(writeResult));
             });
     });
 }
-*/
+
 
 
 seastar::future<> PGK2Client::_pollForWork() {
@@ -203,8 +204,8 @@ seastar::future<> PGK2Client::_pollForWork() {
          _pollSchemaCreateQ(),
         _pollSchemaGetQ(), 
         _pollBeginQ(), 
-        _pollEndQ())
-        //_pollWriteQ())
+        _pollEndQ(),
+        _pollWriteQ())
         .discard_result();
 }
 

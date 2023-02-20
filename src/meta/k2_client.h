@@ -24,11 +24,23 @@ private:
     seastar::future<> _pollReadQ();
     // seastar::future<> _pollCreateScanReadQ();
     // seastar::future<> _pollScanReadQ();
-    //seastar::future<> _pollWriteQ();
+    seastar::future<> _pollWriteQ();
     // seastar::future<> _pollUpdateQ();
     seastar::future<> _pollCreateCollectionQ();
     // seastar::future<> _pollDropCollectionQ();
 };
+
+class K23SITxn
+        {
+        public:
+            K23SITxn(k2::dto::K23SI_MTR mtr, k2::TimePoint startTime):_mtr(std::move(mtr)), _startTime(startTime){};
+            k2::dto::K23SI_MTR GetMtr() {return _mtr;};
+
+        private:
+            // fields
+            k2::dto::K23SI_MTR _mtr; // mtr for this transaction
+            k2::TimePoint _startTime;
+        };
 
 }//gate
 }//k2pg
