@@ -35,8 +35,11 @@
 #include "storage/k2_queue_defs.h"
 #include "dataman/SchemaWriter.h"
 #include "dataman/NebulaCodecImpl.h"
+#include "common/filter/Expressions.h"
 // String to int
 #include <stdlib.h>
+#include <map>
+#include <set>
 // GraphView
 #include "GraphView.h"
 #include "K2Vertex.h"
@@ -88,24 +91,21 @@ static std::shared_ptr<k2::dto::Schema> GetSchemaFromK2(int64_t spaceID, int32_t
         //.prom = new std::promise<k2::GetSchemaResult>()};
         //.prom =  std::promise<k2::GetSchemaResult>()};
         .prom = {}};
-    std::cout << "L90\n";
     auto result = request.prom.get_future();
     pushQ(k2graph::SchemaGetQ, std::move(request));
-    std::cout << "after pushQ L92\n\n";
     try
     {
         // auto result = request.prom->get_future();
         //  auto result = request.prom.get_future();
         // sleep(1);
-        std::cout << "\n\n99\n";
         auto schemaResult = result.get();
         auto status = schemaResult.status;
         if (!status.is2xxOK())
         {
-            std::cout << "获取schema时出错\n";
+            std::cout << "l105 获取schema时出错\n";
+            std::cout << status<<"\n\n";
         }
         std::shared_ptr<k2::dto::Schema> schema = schemaResult.schema;
-        std::cout << "\n\nget schema success\n\n";
         //跟新SchemaTable
         SchemaTable[schemaID] = schema;
         return schema;
@@ -133,12 +133,9 @@ namespace nebula
 
             //通过return_columns 来获取tagID?
             // auto colSize = req.get_return_columns().size();
-            // std::cout << "getBound return_columns is " << colSize << "\n";
             cpp2::PropDef first_col = req.get_return_columns().front();
             auto col_name = first_col.get_name();
             auto col_edgeID = first_col.get_id().get_edge_type();
-            // std::cout << "get bound return_columns name is: " << col_name << "\n";
-            // std::cout << "get bound return_columns id is: " << col_edgeID << "\n";
 
             //构建返回的schema
             std::shared_ptr<k2::dto::Schema> schema;
@@ -207,16 +204,14 @@ namespace nebula
             k2::K2TxnOptions options{};
             options.syncFinalize = true;
             k2graph::MyBeginTxnRequest qr{.opts = options,
-                                          // .prom = new std::promise<k2::dto::K23SI_MTR>(),
-                                          .prom = std::promise<k2::dto::K23SI_MTR>(),
+                                          .prom = {},
                                           .startTime = k2::Clock::now()};
+            auto BeginTxnQResult = qr.prom.get_future();
             pushQ(k2graph::BeginTxnQ, std::move(qr));
             k2::dto::K23SI_MTR mtr; //标识事务，之后的请求要用到
             try
             {
-                // auto result = qr.prom->get_future();
-                auto result = qr.prom.get_future();
-                mtr = result.get();
+                mtr = BeginTxnQResult.get().GetMtr();
             }
             catch (...)
             {
@@ -245,7 +240,6 @@ namespace nebula
                     // cpp2::VertexData vResp;
                     // process vertex 为每一个顶点遍历其邻居边
                     cpp2::VertexData vdata;
-                    // std::cout << "L186 vertexID is" << vertexID << "\n";
                     vdata.set_vertex_id(vertexID);
                     std::vector<cpp2::EdgeData> edge_data_vector;
                     std::shared_ptr<k2::Query> scan = nullptr;
@@ -257,22 +251,27 @@ namespace nebula
                             .schemaName = std::to_string(edgeType),
                             // .prom = new std::promise<k2graph::CreateScanReadResult>()};
                             .prom = std::promise<k2graph::CreateScanReadResult>()};
+                        auto ScanReadResult = request.prom.get_future();
                         pushQ(k2graph::scanReadCreateTxQ, std::move(request));
                         try
                         {
                             // auto scan_create_result = request.prom->get_future().get();
-                            auto scan_create_result = request.prom.get_future().get();
+                            auto scan_create_result = ScanReadResult.get();
                             auto status = scan_create_result.status;
                             if (!status.is2xxOK())
                             {
-                                std::cout << "createQuery 错误"
-                                          << "\n";
-                                cpp2::ResultCode rescode;
-                                rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
-                                failed_codes.emplace_back(rescode);
-                                responseCommon.set_failed_codes(failed_codes);
-                                resp_.set_result(responseCommon);
-                                // return resp_;
+                                // std::cout << "l263 createQuery 错误"
+                                //           << "\n";
+                                // cpp2::ResultCode rescode;
+                                // rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                                // failed_codes.emplace_back(rescode);
+                                // responseCommon.set_failed_codes(failed_codes);
+                                // resp_.set_result(responseCommon);
+                                // // return resp_;
+                                // promise_.setValue(std::move(resp_));
+                                // return f;
+                                resp_.set_total_edges(0);
+                                resp_.set_vertices(std::move(scan_vertices));
                                 promise_.setValue(std::move(resp_));
                                 return f;
                             }
@@ -306,6 +305,8 @@ namespace nebula
                         ednRecord.serializeNext<int64_t>(vertexID);
                         ednRecord.serializeNext<int32_t>(edgeType);
                         scan->endScanRecord = std::move(ednRecord);
+                        
+                        scan->setLimit(-1);
 
                         // range query
                         k2graph::MyScanReadRequest scan_request{
@@ -313,26 +314,26 @@ namespace nebula
                             .query = std::move(scan),
                             // .prom = new std::promise<k2::QueryResult>()};
                             .prom = std::promise<k2::QueryResult>()};
+                        auto ReadResult = scan_request.prom.get_future();
                         pushQ(k2graph::scanReadTxQ, std::move(scan_request));
 
                         //  k2::QueryResult scan_result = scan_request.prom->get_future().get();
-                        k2::QueryResult scan_result = scan_request.prom.get_future().get();
+                        k2::QueryResult scan_result = ReadResult.get();
                         auto status = scan_result.status;
-                        // std::cout << "\n255\n"
-                        //   << status << "\n";
                         std::vector<k2::dto::SKVRecord> scan_result_records(std::move(scan_result.records));
                         // std::cout << "L255 读上来的数据个数 " << scan_result_records.size() << "\n";
                         edge_number = scan_result_records.size();
                         // std::vector<std::string> edge_vector;
 
-                        bool isSucceed = true;
-                        k2graph::MyEndTxnRequest end_txn_req{
-                            .mtr = mtr,
-                            .shouldCommit = isSucceed,
-                            // .prom = new std::promise<k2::EndResult>()};
-                            .prom = std::promise<k2::EndResult>()};
+                        // bool isSucceed = true;
+                        
+                       // k2graph::MyEndTxnRequest end_txn_req{
+                      //      .mtr = mtr,
+                      //      .shouldCommit = isSucceed,
+                      //      // .prom = new std::promise<k2::EndResult>()};
+                      //      .prom = std::promise<k2::EndResult>()};
 
-                        pushQ(k2graph::EndTxnQ, std::move(end_txn_req));
+                     //   pushQ(k2graph::EndTxnQ, std::move(end_txn_req));
 
                         std::vector<cpp2::IdAndProp> idAndProps;
                         //读skvrecord, 构造返回值
@@ -374,7 +375,7 @@ namespace nebula
                 .shouldCommit = isSucceed,
                 //.prom = new std::promise<k2::EndResult>()};
                 .prom = std::promise<k2::EndResult>()};
-
+            auto EndTxnQResult = end_txn_req.prom.get_future();
             pushQ(k2graph::EndTxnQ, std::move(end_txn_req));
 
             // resp_.set_edge_schema(std::move(my_edge_schema));
@@ -384,22 +385,10 @@ namespace nebula
             resp_.set_total_edges(edge_number);
             resp_.set_vertices(std::move(scan_vertices));
             promise_.setValue(std::move(resp_));
-            std::cout << "getBound end\n";
             return f;
 
         } // end for getBound
 
-        /*
-                folly::Future<cpp2::QueryStatsResponse>
-                StorageServiceHandler::future_boundStats(const cpp2::GetNeighborsRequest& req) {
-                    auto* processor = QueryStatsProcessor::instance(kvstore_,
-                                                                    schemaMan_,
-                                                                    &boundStatsQpsStat_,
-                                                                    readerPool_.get(),
-                                                                    &vertexCache_);
-                    RETURN_FUTURE(processor);
-                }
-        */
         // 读到的SKVRecord 重构为 binary
         //  返回 query engine
 
@@ -413,15 +402,11 @@ namespace nebula
             std::vector<cpp2::ResultCode> failed_codes;
 
             //通过return_columns 来获取tagID
-            // auto colSize = req.get_return_columns().size();
-            // std::cout << "getProp return_columns is: " << colSize << "\n";
 
             //暂时只处理一次读一个顶点，colSize大小为1
             cpp2::PropDef first_col = req.get_return_columns().front();
             auto col_name = first_col.get_name();
             auto col_tagID = first_col.get_id().get_tag_id();
-            // std::cout << "return_columns name is: " << col_name << "\n";
-            // std::cout << "return_columns id is: " << col_tagID << "\n";
 
             //构建编码的schema
             std::shared_ptr<k2::dto::Schema> schema;
@@ -430,17 +415,9 @@ namespace nebula
             auto fields = schema->fields;
             nebula::SchemaWriter schemaWriter;
 
-            for (auto field = fields.begin(); field != fields.end(); field++)
+            for (auto field = fields.begin()+3; field != fields.end(); field++)
             {
-                //跳过Key partID VertexID tagID
-                if (field == fields.begin())
-                {
-                    field++;
-                    field++;
-                    continue;
-                }
                 auto name = field->name.c_str();
-                // std::cout << "field->type is in L291:" << field->type;
                 auto type = field->type;
                 switch (type)
                 { // VID类型对应INT64
@@ -478,24 +455,25 @@ namespace nebula
             //构建返回的 vertex_schema
             std::unordered_map<nebula::cpp2::TagID, nebula::cpp2::Schema> my_vertex_schema;
             my_vertex_schema.insert(std::make_pair(col_tagID, tag_schema));
-            // std::cout << "\n"
-            //    << "my_vertex_schema size " << my_vertex_schema.size() << "\n";
-            //  resp_.set_vertex_schema(std::move(my_vertex_schema));
+            
 
             //开始一个事务 TODO:单独设置为一个函数
             k2::K2TxnOptions options{};
             options.syncFinalize = true;
             k2graph::MyBeginTxnRequest qr{.opts = options,
                                           //.prom = new std::promise<k2::dto::K23SI_MTR>(),
-                                          .prom = std::promise<k2::dto::K23SI_MTR>(),
+                                          .prom = {},
                                           .startTime = k2::Clock::now()};
+
+            auto GetPropResult = qr.prom.get_future();
             pushQ(k2graph::BeginTxnQ, std::move(qr));
             k2::dto::K23SI_MTR mtr; //标识事务，之后的请求要用到
             try
             {
                 // auto result = qr.prom->get_future();
-                auto result = qr.prom.get_future();
-                mtr = result.get();
+                // auto GetPropResult = qr.prom.get_future();
+                // mtr = result.get();
+                mtr = GetPropResult.get().GetMtr();
             }
             catch (...)
             {
@@ -513,7 +491,6 @@ namespace nebula
 
             //对每一个顶点构造一个skvrecord用于构造请求。
             auto spaceId = req.space_id;
-            // std::vector<int64_t> Vertex_ID_Vec;
             int return_VID;
 
             for (auto iter = req.parts.begin(); iter != req.parts.end(); iter++)
@@ -537,20 +514,19 @@ namespace nebula
                         .schemaVersion = 1, //目前所有schema的version均为1，之后可能需要进一步修改
                                             // .prom = new std::promise<k2::GetSchemaResult>()};
                         .prom = std::promise<k2::GetSchemaResult>()};
+                  auto SchemaGetResult = request.prom.get_future();
                     pushQ(k2graph::SchemaGetQ, std::move(request));
                     try
                     {
                         // auto result = request.prom->get_future();
-                        auto result = request.prom.get_future();
-                        auto schemaResult = result.get();
+                       // auto SchemaGetResult = request.prom.get_future();
+                        auto schemaResult = SchemaGetResult.get();
                         auto status = schemaResult.status;
-                        // std::cout << "\n\n\n\n"
-                        //           << status << "\n\n\n\n";
                         if (!status.is2xxOK())
                         { //获取schema时出错
                             //构造错误信息,并返回
                             // TODO：考虑多个顶点出错的情况，是直接返回，还是将正确的执行后返回
-                            std::cout << "获取schema时出错\n";
+                            std::cout << "l559获取schema时出错\n";
 
                             cpp2::ResultCode rescode;
                             rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
@@ -584,7 +560,64 @@ namespace nebula
                 }
             }
 
-            for (auto iter = skvrecord_list.begin(); iter != skvrecord_list.end(); iter++)
+            //只能一次读一条数据
+            auto iter = skvrecord_list.begin();
+            k2::dto::SKVRecord _record = std::move(*(iter));
+                            k2::dto::Key _key = _record.getKey();
+                            k2graph::MyReadRequest read_request{
+                                .mtr = mtr,
+                                .record = k2::dto::SKVRecord(),
+                                .key = std::move(_key),
+                                .collectionName = std::to_string(spaceId),
+                                //  .prom = new std::promise<k2::ReadResult<k2::dto::SKVRecord>>()};
+                                .prom = std::promise<k2::ReadResult<k2::dto::SKVRecord>>()};
+
+                            auto ReadResult = read_request.prom.get_future();
+            pushQ(k2graph::readTxQ, std::move(read_request));
+            bool isSucceed = true;
+            std::vector<cpp2::VertexData> vertices;
+             auto MyReadResult = ReadResult.get();
+                auto status = MyReadResult.status;
+                if (!status.is2xxOK())
+                {
+                    isSucceed = false;
+                   // break;
+                }
+
+                std::vector<boost::any> v_tag_data;
+                for (auto field = fields.begin(); field != fields.end(); field++)
+                {
+                    if (field == fields.begin())
+                    {
+                        field++;
+                        field++;
+                        continue;
+                    }
+                    auto name = field->name.c_str();
+                    //只支持 int_64的字段
+                    auto skv_filed = MyReadResult.value.deserializeField<int64_t>(name);
+                    v_tag_data.emplace_back(*skv_filed);
+                }
+
+                auto result_tag_data = codec.encode(v_tag_data, nebula_schema);
+                cpp2::VertexData vResp;
+                //限定一个顶点只有一个tag
+                std::vector<cpp2::TagData> tds;
+                cpp2::TagData td;
+                int32_t tagID = col_tagID;
+                td.set_tag_id(tagID);
+                // td.set_data(std::move(result_tag_data));
+                td.set_data(std::move(result_tag_data));
+                tds.emplace_back(std::move(td));
+                // int64_t vid = 101;
+
+                vResp.set_vertex_id(return_VID);
+                vResp.set_tag_data(std::move(tds));
+
+                vertices.emplace_back(std::move(vResp));
+
+
+ /*           for (auto iter = skvrecord_list.begin(); iter != skvrecord_list.end(); iter++)
             {
                 k2::dto::SKVRecord _record = std::move(*(iter));
                 k2::dto::Key _key = _record.getKey();
@@ -595,6 +628,8 @@ namespace nebula
                     .collectionName = std::to_string(spaceId),
                     //  .prom = new std::promise<k2::ReadResult<k2::dto::SKVRecord>>()};
                     .prom = std::promise<k2::ReadResult<k2::dto::SKVRecord>>()};
+
+                auto ReadResult = read_request.prom.get_future();
                 pushQ(k2graph::readTxQ, std::move(read_request));
                 request_list.push_back(std::move(read_request));
             }
@@ -604,8 +639,8 @@ namespace nebula
             for (auto request = request_list.begin(); request != request_list.end(); request++)
             {
                 // auto result = request->prom->get_future();
-                auto result = request->prom.get_future();
-                auto MyReadResult = result.get();
+               // auto ReadResult = request->prom.get_future();
+                auto MyReadResult = ReadResult.get();
                 auto status = MyReadResult.status;
                 if (!status.is2xxOK())
                 {
@@ -651,7 +686,7 @@ namespace nebula
 
                 std::cout << "vertices size is: " << vertices.size() << "\n";
             }
-
+*/
             k2graph::MyEndTxnRequest end_txn_req{
                 .mtr = mtr,
                 .shouldCommit = isSucceed,
@@ -662,10 +697,7 @@ namespace nebula
 
             resp_.set_vertices(std::move(vertices));
             resp_.set_vertex_schema(std::move(my_vertex_schema));
-            std::cout << "L500 " << resp_.get_vertex_schema()->size() << "\n\n";
-
             promise_.setValue(std::move(resp_));
-            std::cout << "getProp end\n";
             return f;
         }
 
@@ -675,45 +707,69 @@ namespace nebula
             folly::Promise<cpp2::EdgePropResponse> promise_;
             auto f = promise_.getFuture();
             cpp2::EdgePropResponse resp_;
+            return f;
         }
 
-        static int countVertex = 0;
+
+//add Vertex
+        // static int countVertex = 0;
         folly::Future<cpp2::ExecResponse>
         StorageServiceHandler::future_addVertices(const cpp2::AddVerticesRequest &req)
         {
             //只支持一次插入一个顶点的函数
-            std::cout << "part size is: " << req.parts.size() << std::endl;
-            countVertex++;
-            //  std::cout<<"countVertex is: "<<countVertex<<std::endl;
-            if (countVertex % 500 == 0)
-            {
-                std::cout << countVertex << std::endl;
-                sleep(5); //写得太快了？
-            }
+            // std::cout << "part size is: " << req.parts.size() << std::endl;
+            // int partNum = 0;
+            // for(auto it = req.parts.begin();it!=req.parts.end();++it){
+            //     std::cout<<"Part is: "<<partNum<<std::endl;
+            //     partNum++;
+            //   std::cout << "vertex size " << it->second.size() << std::endl;
+            // }
+            // countVertex++;
+            // if (countVertex % 10 == 0)
+            // {
+            //     std::cout << countVertex << std::endl; //
+            //     // sleep(1); //写得太快了？
+            // }
             folly::Promise<cpp2::ExecResponse> promise_;
             auto f = promise_.getFuture();
             cpp2::ExecResponse resp_;
             cpp2::ResponseCommon responseCommon;
             std::vector<cpp2::ResultCode> failed_codes;
             std::vector<k2::dto::SKVRecord> skvrecord_list;
+            std::vector<k2::dto::SKVRecord> VID2TagID_list;
             bool isSucceed = true;
 
             auto spaceId = req.space_id;
-            std::cout << "l698\n";
-
+            //构造系统schema：VID->TagID
+            k2::dto::Schema Vertex2Schema;
+            Vertex2Schema.name = std::to_string(1);
+            Vertex2Schema.version = 1;
+            Vertex2Schema.fields = std::vector<k2::dto::SchemaField>{
+                {k2::dto::FieldType::INT64T, "VertexID", false, false},
+                {k2::dto::FieldType::INT32T, "TagID", false, false}
+            };
+            Vertex2Schema.setPartitionKeyFieldsByName(std::vector<k2::String>{"VertexID"});
+            Vertex2Schema.setRangeKeyFieldsByName(std::vector<k2::String>{"TagID"});
             for (auto iter = req.parts.begin(); iter != req.parts.end(); iter++)
             {
                 auto vertices = iter->second;
                 for (auto vertex : vertices)
                 {
                     auto tags = vertex.tags;
+                    auto VID = vertex.get_id();
                     for (auto tag : tags)
                     {
+                        //TODO优化
+                        //写入vertexID->tagID的信息
+                        k2::dto::SKVRecord VID2TagID(std::to_string(spaceId), std::make_shared<k2::dto::Schema>(Vertex2Schema));
+                        VID2TagID.serializeNext<int64_t>(VID);
+                        VID2TagID.serializeNext<int32_t>(tag.get_tag_id());
+                        VID2TagID_list.push_back(std::move(VID2TagID));
+
                         std::shared_ptr<k2::dto::Schema> schema;
                         auto tagID = tag.tag_id;
                         if (SchemaTable.find(tagID) != SchemaTable.end())
                         {
-                            // std::cout<<"跳过获取schema\n";
                             schema = SchemaTable[tagID];
                         }
 
@@ -735,14 +791,12 @@ namespace nebula
                                 return resp_;
                             }
                         }
-                        std::cout << "L734\n\n";
                         // Nebula Schema用于解码
                         auto fields = schema->fields;
                         nebula::cpp2::Schema k2TagSchema;
                         if (NebulaSchemaTable.find(tagID) != NebulaSchemaTable.end())
                         {
                             k2TagSchema = NebulaSchemaTable[tagID];
-                            std::cout << "跳过构造schema\n";
                         }
                         else
                         {
@@ -750,7 +804,6 @@ namespace nebula
                             nebula::SchemaWriter schemaWriter; //用于构造nebula中的schema
                             for (auto field = fields.begin(); field != fields.end(); field++)
                             {
-                                std::cout << "L 747\n";
                                 if (field == fields.begin())
                                 {
                                     field++;
@@ -790,7 +843,6 @@ namespace nebula
                                     return resp_;
                                 }
                             }
-                            std::cout << "L 787\n";
                             k2TagSchema = schemaWriter.moveSchema();
                             NebulaSchemaTable[tagID] = k2TagSchema;
                         }
@@ -798,10 +850,10 @@ namespace nebula
                         nebula::dataman::NebulaCodecImpl codec;
                         auto result = codec.decode(tag.get_props(), nebula_schema);
                         k2::dto::SKVRecord skvRecord(std::to_string(spaceId), schema);
+
                         skvRecord.serializeNext<int16_t>(iter->first);
-                        skvRecord.serializeNext<int64_t>(vertex.get_id());
+                        skvRecord.serializeNext<int64_t>(VID);
                         skvRecord.serializeNext<int32_t>(tag.get_tag_id());
-                        std::cout << "L798\n";
                         for (auto field = fields.begin(); field != fields.end(); field++)
                         {
                             if (field == fields.begin())
@@ -873,15 +925,22 @@ namespace nebula
                     }
                 }
             }
-            std::cout << "l860\n";
+           // usleep(90000);
+            // sleep(1);
+            
             k2::K2TxnOptions options{};
             options.syncFinalize = true;
+            auto start = k2::Clock::now();
             k2graph::MyBeginTxnRequest qr{.opts = options,
-                                          //   .prom = new std::promise<k2::dto::K23SI_MTR>(),
-                                          .prom = std::promise<k2::dto::K23SI_MTR>(),
-                                          .startTime = k2::Clock::now()};
+                                          .prom = {},
+                                          //.startTime = k2::Clock::now()};
+                                          .startTime = start};
+            
+            
             auto BeginTxnQResult = qr.prom.get_future();
-            std::cout << "880\n";
+            
+         //   sleep(1);
+            
             pushQ(k2graph::BeginTxnQ, std::move(qr));
 
             k2::dto::K23SI_MTR mtr; //标识事务，之后的请求要用到
@@ -889,13 +948,15 @@ namespace nebula
             {
                 
                 // auto BeginTxnQResult = qr.prom.get_future();
-                mtr = BeginTxnQResult.get();
-                std::cout << "l885\n";
+                //mtr = BeginTxnQResult.get();
+
+
+                mtr = BeginTxnQResult.get().GetMtr();
+                // std::cout << "l978 begin Txn success\n";
             }
             catch (...)
             {
                 //构造错误信息,并返回
-                std::cout << "l893\n";
                 cpp2::ResultCode rescode;
                 rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
                 failed_codes.emplace_back(rescode);
@@ -903,35 +964,44 @@ namespace nebula
                 resp_.set_result(responseCommon);
                 return resp_;
             }
-            std::cout << "l898\n";
+
+            //
+            auto batchIt = req.parts.begin();
+            int batchSize = batchIt->second.size();
+            // std::cout<<"batchSize is: "<<batchSize<<std::endl;
+            for(int i=0;i<batchSize;i++){
+
             k2graph::MyWriteRequest write_request{
                 .mtr = mtr,
-                .record = std::move(skvrecord_list[0]), //从上面的序列化得出
-                                                        //  .prom = new std::promise<k2::WriteResult>()};
+                .record = std::move(skvrecord_list[i]), //从上面的序列化得出
                 .prom = std::promise<k2::WriteResult>()};
-            std::cout << "l904\n";
+            k2graph::MyWriteRequest VID2TagID_request{
+                .mtr = mtr,
+                .record = std::move(VID2TagID_list[i]), //从上面的序列化得出
+                .prom = std::promise<k2::WriteResult>()
+            };
             auto WQResult = write_request.prom.get_future();
+            auto WQResult1 = VID2TagID_request.prom.get_future();
             pushQ(k2graph::WriteRequestQ, std::move(write_request));
-            std::cout << "l908\n";
+            pushQ(k2graph::WriteRequestQ, std::move(VID2TagID_request));
             try
             {
-                // auto result = write_request.prom->get_future();
-                // auto result = write_request.prom.get_future();
-
                 auto WriteResult = WQResult.get();
                 auto status = WriteResult.status;
-                std::cout << "l914\n";
+                auto WriteResult1 = WQResult1.get();
+                auto status1 = WriteResult1.status;
+                std::cout << "l989 " << status1 << std::endl;
                 if (!status.is2xxOK())
                 {
-                    std::cout << "L918\n";
                     isSucceed = false;
                 }
             }
             catch (...)
             {
-                std::cout << "l923\n";
                 isSucceed = false;
             }
+
+            }//end for batch
 
             bool isendsucceed = true;
             k2graph::MyEndTxnRequest end_txn_req{
@@ -939,7 +1009,7 @@ namespace nebula
                 .shouldCommit = isSucceed,
                 //.prom = new std::promise<k2::EndResult>()
                 .prom = std::promise<k2::EndResult>()};
-            std::cout << "l934\n";
+
             auto EndQResult = end_txn_req.prom.get_future();
 
             pushQ(k2graph::EndTxnQ, std::move(end_txn_req));
@@ -956,7 +1026,6 @@ namespace nebula
             cpp2::ResultCode rescode;
             if (!isendsucceed || !isSucceed)
             {
-                std::cout << "error L955\n\n\n\n";
                 rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
                 failed_codes.emplace_back(rescode);
                 responseCommon.set_failed_codes(failed_codes);
@@ -970,366 +1039,7 @@ namespace nebula
             promise_.setValue(std::move(resp_));
             return f;
         }
-
-        // folly::Future<cpp2::ExecResponse>
-        // StorageServiceHandler::future_addVertices(const cpp2::AddVerticesRequest &req)
-        // {
-
-        //     // TODO:调整构造skvrecord和开始事务的顺序 :将request_list改成skvrecord_list, endtxn失败时，多尝试几次。
-        //     //用于返回结果
-        //     //暂时不处理latency，leader，partID字段
-
-        //     //sleep 10s ,验证是否可以写入
-        //     //sleep(1);
-
-        //     folly::Promise<cpp2::ExecResponse> promise_;
-        //     auto f = promise_.getFuture();
-        //     cpp2::ExecResponse resp_;
-        //     cpp2::ResponseCommon responseCommon;
-        //     std::vector<cpp2::ResultCode> failed_codes;
-
-        //     //在内部做一个从tagid到schema的映射，以防多个相同tag的结点都从数据库中请求相同的schema
-        //     // std::unordered_map<int32_t, std::shared_ptr<k2::dto::Schema>> table;
-        //     std::vector<k2graph::MyWriteRequest> request_list;
-        //     std::vector<k2::dto::SKVRecord> skvrecord_list;
-
-        //     auto spaceId = req.space_id;
-
-        //     //构造skvrecord
-        //     for (auto iter = req.parts.begin(); iter != req.parts.end(); iter++)
-        //     {
-        //         auto vertices = iter->second;
-        //         int64_t batch_vertex_size = vertices.size();
-        //         std::cout<<"batch_vertex_size is "<<batch_vertex_size<<"\n";
-        //         total_vertex += batch_vertex_size;
-        //         std::cout<<"total_vertex is "<<total_vertex<<"\n";
-        //         for (auto vertex : vertices)
-        //         {
-
-        //          auto tags = vertex.tags;
-        //             //每个tag构造一个add请求
-        //             for (auto tag : tags)
-        //             {
-        //                 //先获取schema
-        //                 std::shared_ptr<k2::dto::Schema> schema;
-        //                 auto tagID = tag.tag_id;
-        //                 if (SchemaTable.find(tagID) != SchemaTable.end())
-        //                 {
-        //                     schema = SchemaTable[tagID];
-        //                 }
-        //                 else
-        //                 { //没找到,需要获取schema，之后可以单独修改成一个函数
-        //                     try
-        //                     {schema = GetSchemaFromK2(spaceId,tagID);}
-
-        //                    // k2graph::MySchemaGetRequest request{
-        //                     //    .collectionName = std::to_string(spaceId),
-        //                      //   .schemaName = std::to_string(tagID),
-        //                      //   .schemaVersion = 1, //目前所有schema的version均为1，之后可能需要进一步修改
-        //                      //   .prom = new std::promise<k2::GetSchemaResult>()};
-        //                     //pushQ(k2graph::SchemaGetQ, request);
-        //                     //try
-        //                    // {
-        //                      //   auto result = request.prom->get_future();
-        //                      //   auto schemaResult = result.get();
-        //                       //  auto status = schemaResult.status;
-        //                       //  if (!status.is2xxOK())
-        //                       //  { //获取schema时出错
-        //                             //构造错误信息,并返回
-        //                             // TODO：考虑多个顶点出错的情况，是直接返回，还是将正确的执行后返回
-        //                             //std::cout << "获取schema时出错\n";
-
-        //                         //    cpp2::ResultCode rescode;
-        //                         //    rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
-        //                         //    failed_codes.emplace_back(rescode);
-        //                         //    responseCommon.set_failed_codes(failed_codes);
-        //                          //   resp_.set_result(responseCommon);
-        //                             // return resp_;
-        //                          //   promise_.setValue(std::move(resp_));
-        //                            // return f;
-        //                        // }
-        //                        // schema = schemaResult.schema;
-        //                        // SchemaTable[tagID] = schemaResult.schema;
-        //                     //}
-        //                    catch (...)
-        //                      {
-        //                         //构造错误信息,并返回
-        //                         //因为遇到异常，直接返回
-        //                         cpp2::ResultCode rescode;
-        //                         rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
-        //                         failed_codes.emplace_back(rescode);
-        //                         responseCommon.set_failed_codes(failed_codes);
-        //                         resp_.set_result(responseCommon);
-        //                         return resp_;
-        //                     }
-
-        //                 }
-
-        //                 //Nebula Schema用于解码
-        //                 auto fields = schema->fields;
-        //                 nebula::cpp2::Schema k2TagSchema;
-        //                  if (NebulaSchemaTable.find(tagID) != NebulaSchemaTable.end())
-        //                 {
-        //                     k2TagSchema = NebulaSchemaTable[tagID];
-        //                 }
-
-        //                 else{
-
-        //                // std::cout << fields;
-        //                     nebula::SchemaWriter schemaWriter; //用于构造nebula中的schema
-        //                     for (auto field = fields.begin(); field != fields.end(); field++)
-        //                     {
-        //                         if (field == fields.begin())
-        //                         {
-        //                             field++;
-        //                             field++;
-        //                             continue;
-        //                         }
-        //                         auto name = field->name.c_str();
-        //                         auto type = field->type;
-
-        //                         switch (type)
-        //                         { // VID类型对应INT64
-        //                         case k2::dto::FieldType::STRING:
-        //                             schemaWriter.appendCol(name, nebula::cpp2::SupportedType::STRING);
-        //                             break;
-        //                         case k2::dto::FieldType::INT16T:
-        //                         case k2::dto::FieldType::INT32T:
-        //                         case k2::dto::FieldType::INT64T:
-        //                             schemaWriter.appendCol(name, nebula::cpp2::SupportedType::INT);
-        //                             break;
-        //                         case k2::dto::FieldType::FLOAT:
-        //                             schemaWriter.appendCol(name, nebula::cpp2::SupportedType::FLOAT);
-        //                             break;
-        //                         case k2::dto::FieldType::DOUBLE:
-        //                             schemaWriter.appendCol(name, nebula::cpp2::SupportedType::DOUBLE);
-        //                             break;
-        //                         case k2::dto::FieldType::BOOL:
-        //                             schemaWriter.appendCol(name, nebula::cpp2::SupportedType::BOOL);
-        //                             break;
-        //                         default:
-        //                             //构造错误信息,并返回
-        //                             // TODO：考虑多个顶点出错的情况，是直接返回，还是将正确的执行后返回
-        //                             cpp2::ResultCode rescode;
-        //                             rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
-        //                             failed_codes.emplace_back(rescode);
-        //                             responseCommon.set_failed_codes(failed_codes);
-        //                             resp_.set_result(responseCommon);
-        //                             return resp_;
-        //                         }
-        //                     }
-        //                     k2TagSchema = schemaWriter.moveSchema();
-        //                     NebulaSchemaTable[tagID] = k2TagSchema;
-        //                 }
-
-        //                 //auto nebula_schema = std::make_shared<nebula::ResultSchemaProvider>(schemaWriter.moveSchema());
-        //                 auto nebula_schema = std::make_shared<nebula::ResultSchemaProvider>(k2TagSchema);
-        //                 nebula::dataman::NebulaCodecImpl codec;
-        //                 auto result = codec.decode(tag.get_props(), nebula_schema);
-        //                // std::cout << "\n\n\n\nL198\n\n\n\n";
-        //                 //构造skvrecord
-        //                 k2::dto::SKVRecord skvRecord(std::to_string(spaceId), schema);
-        //                 //已经将meta中前三个field全部设置成INT64
-        //                 skvRecord.serializeNext<int16_t>(iter->first);
-        //                 skvRecord.serializeNext<int64_t>(vertex.get_id());
-        //                 skvRecord.serializeNext<int32_t>(tag.get_tag_id());
-        //                // std::cout << "\n\n\n\nL206\n\n\n\n"
-        //                 //          << result.value().begin()->first << "\n"
-        //                 //          << (result.value().begin()->second.type() == typeid(int32_t)) << "\n";
-        //                 for (auto field = fields.begin(); field != fields.end(); field++)
-        //                 {
-        //                     if (field == fields.begin())
-        //                     {
-        //                         field++;
-        //                         field++;
-        //                         continue;
-        //                     }
-        //                    // std::cout << "\n\n\n\nL213\n\n\n\n"
-        //                     //          << field->name.c_str() << "\n";
-        //                     auto name = field->name.c_str(); //获得name的std::string格式
-        //                     auto type = field->type;
-        //                     //在result中查找是否存在此field，不存在则查看是否可以置为null
-        //                     auto value = result.value().find(name);
-        //                     try
-        //                     {
-        //                         if (value != result.value().end())
-        //                         { //查找到name，直接根据类型序列化值
-        //                             switch (type)
-        //                             {
-        //                             case k2::dto::FieldType::STRING:
-        //                                 skvRecord.serializeNext<k2::String>(boost::any_cast<std::string>(value->second));
-        //                                 break;
-        //                             case k2::dto::FieldType::INT16T:
-        //                                 skvRecord.serializeNext<int16_t>(boost::any_cast<int16_t>(value->second));
-        //                                 break;
-        //                             case k2::dto::FieldType::INT32T:
-        //                                 skvRecord.serializeNext<int32_t>(boost::any_cast<int32_t>(value->second));
-        //                                 break;
-        //                             case k2::dto::FieldType::INT64T:
-        //                                 skvRecord.serializeNext<int64_t>(boost::any_cast<int32_t>(value->second));
-        //                                 break;
-        //                             case k2::dto::FieldType::FLOAT:
-        //                                 skvRecord.serializeNext<float>(boost::any_cast<float>(value->second));
-        //                                 break;
-        //                             case k2::dto::FieldType::DOUBLE:
-        //                                 skvRecord.serializeNext<double>(boost::any_cast<double>(value->second));
-        //                                 break;
-        //                             case k2::dto::FieldType::BOOL:
-        //                                 skvRecord.serializeNext<bool>(boost::any_cast<bool>(value->second));
-        //                                 break;
-        //                             default:
-        //                                 //构造错误信息,并返回
-        //                                 // TODO：考虑多个顶点出错的情况，是直接返回，还是将正确的执行后返回
-        //                                 cpp2::ResultCode rescode;
-        //                                 rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
-        //                                 failed_codes.emplace_back(rescode);
-        //                                 responseCommon.set_failed_codes(failed_codes);
-        //                                 resp_.set_result(responseCommon);
-        //                                 return resp_;
-        //                             }
-        //                         }
-        //                         else
-        //                         {
-        //                             //未找到值序列化null
-        //                             skvRecord.serializeNull();
-        //                         }
-        //                     }
-        //                     catch (...)
-        //                     {
-        //                         //构造错误信息,并返回
-        //                         cpp2::ResultCode rescode;
-        //                         rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
-        //                         failed_codes.emplace_back(rescode);
-        //                         responseCommon.set_failed_codes(failed_codes);
-        //                         resp_.set_result(responseCommon);
-        //                         return resp_;
-        //                     }
-        //                 }
-
-        //                 skvrecord_list.push_back(std::move(skvRecord));
-        //             }
-        //         }
-        //     }
-
-        //     //std::cout << "begin Txn\n";
-
-        //     //开始一个事务
-        //     k2::K2TxnOptions options{};
-        //     options.syncFinalize = true;
-        //     k2graph::MyBeginTxnRequest qr{.opts = options, .prom = new std::promise<k2::dto::K23SI_MTR>(), .startTime = k2::Clock::now()};
-        //     pushQ(k2graph::BeginTxnQ, std::move(qr));
-        //     k2::dto::K23SI_MTR mtr; //标识事务，之后的请求要用到
-        //     try
-        //     {
-        //         auto result = qr.prom->get_future();
-        //         mtr = result.get();
-        //     }
-        //     catch (...)
-        //     {
-        //         //构造错误信息,并返回
-        //         cpp2::ResultCode rescode;
-        //         rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
-        //         failed_codes.emplace_back(rescode);
-        //         responseCommon.set_failed_codes(failed_codes);
-        //         resp_.set_result(responseCommon);
-        //         return resp_;
-        //     }
-        //     //将所有req push进队列
-        //    // std::cout << "push queue\n";
-
-        //     for (auto iter = skvrecord_list.begin(); iter != skvrecord_list.end(); iter++)
-        //     {
-        //         k2graph::MyWriteRequest write_request{
-        //             .mtr = mtr,
-        //             .record = std::move(*(iter)), //从上面的序列化得出
-        //             .prom = new std::promise<k2::WriteResult>()};
-        //         pushQ(k2graph::WriteRequestQ, std::move(write_request));
-        //         request_list.push_back(std::move(write_request));
-        //     }
-        //    // std::cout << "L292\n";
-        //     bool isSucceed = true;
-        //     for (auto request = request_list.begin(); request != request_list.end(); request++)
-        //     {
-        //         try
-        //         {
-        //             auto result = request->prom->get_future();
-        //             auto WriteResult = result.get();
-        //             auto status = WriteResult.status;
-        //             if (!status.is2xxOK())
-        //             {
-        //                 //std::cout << "L301\n";
-        //                 isSucceed = false;
-        //                 break;
-        //             }
-        //            // std::cout << "\nL304\n"
-        //                       //<< status << "\n";
-        //         }
-        //         catch (...)
-        //         {
-        //             isSucceed = false;
-        //             break;
-        //         }
-        //     }
-        //     k2graph::MyEndTxnRequest end_txn_req{
-        //         .mtr = mtr,
-        //         .shouldCommit = isSucceed,
-        //         .prom = new std::promise<k2::EndResult>()};
-
-        //     pushQ(k2graph::EndTxnQ, end_txn_req);
-        //     int limit = 2; //设置尝试endtxn的最大次数
-        //     bool isendsucceed;
-        //    // std::cout << "L319\n"
-        //            //   << isSucceed;
-        //     do
-        //     {
-        //         try
-        //         {
-        //           //  std::cout << "L320\n";
-        //             auto result = end_txn_req.prom->get_future();
-        //             auto EndResult = result.get();
-        //             auto status = EndResult.status;
-        //             if (!status.is2xxOK())
-        //             { //没有成功,重新push
-        //                 isendsucceed = false;
-        //                 pushQ(k2graph::EndTxnQ, end_txn_req);
-        //             }
-        //             else
-        //             {
-        //                 // end事务成功，直接返回上面得到的写入的结果,即写入成功，返回成功，否则失败。
-        //                 isendsucceed = true;
-        //             }
-        //         }
-        //         catch (...)
-        //         {
-        //             isendsucceed = false;
-        //             pushQ(k2graph::EndTxnQ, end_txn_req);
-        //         }
-        //         limit--;
-        //     } while ((limit > 0) && !isendsucceed); //还有剩余尝试次数，且失败时继续执行
-        //    // std::cout << "L342\n"
-        //              // << isendsucceed << "\n";
-        //     cpp2::ResultCode rescode;
-        //     if (!isendsucceed || !isSucceed)
-        //     {
-        //        // std::cout << "L345\n\n\n\n";
-        //         rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
-        //         failed_codes.emplace_back(rescode);
-        //     }
-        //     else
-        //     {
-        //        // std::cout << "L349\n\n\n\n"
-        //          //         << "success"
-        //           //        << "\n\n\n\n";
-        //     }
-        //     responseCommon.set_failed_codes(failed_codes);
-        //     responseCommon.set_latency_in_us(10); // TODO
-        //     resp_.set_result(responseCommon);
-        //     //返回一个future
-        //     promise_.setValue(std::move(resp_));
-        //     //std::cout << "addvertex end\n";
-        //     return f;
-        // }
-
+        
         folly::Future<cpp2::ExecResponse>
         StorageServiceHandler::future_addEdges(const cpp2::AddEdgesRequest &req)
         {
@@ -1340,11 +1050,12 @@ namespace nebula
             cpp2::ExecResponse resp_;
             cpp2::ResponseCommon responseCommon;
             std::vector<cpp2::ResultCode> failed_codes;
-
+            bool isSucceed = true;
+            std::map<int64_t, std::vector<int32_t>> VID2EdgeType;
             // edgeType(int32) <----> schema(k2) 映射表
             // std::unordered_map<int32_t, std::shared_ptr<k2::dto::Schema>> EdgeTypeTable;
-            std::vector<k2graph::MyWriteRequest> request_list;
             std::vector<k2::dto::SKVRecord> skvrecord_list;
+            std::vector<k2::dto::SKVRecord> in_edge_skvrecord_list;
 
             auto spaceID = req.space_id;
 
@@ -1355,13 +1066,26 @@ namespace nebula
                 {
                     // int32_t edgeType = edge.key.edge_type;
                     int32_t edgeType = edge.get_key().get_edge_type();
+                    auto srcID = edge.get_key().get_src();
+                    auto dstID = edge.get_key().get_dst();
+                    //将VID与EdgeType关联Src->edgeType Dst->-EdgeType
+                    if(VID2EdgeType.count(srcID) > 0){
+                        VID2EdgeType[srcID].push_back(edgeType);
+                    }
+                    else {
+                        VID2EdgeType[srcID] = {edgeType};
+                    }
+                    if(VID2EdgeType.count(dstID) > 0){
+                        VID2EdgeType[dstID].push_back(-edgeType);
+                    }
+                    else {
+                        VID2EdgeType[dstID] = {-edgeType};
+                    }
                     std::shared_ptr<k2::dto::Schema> schema;
-                    //  std::cout << "edgeType ID is:" << edgeType << "\n";
                     if (edgeType < 0)
                     {
                         continue; //不保存负向的边
                     }
-
                     if (SchemaTable.find(edgeType) != SchemaTable.end())
                     {
                         schema = SchemaTable[edgeType];
@@ -1369,41 +1093,9 @@ namespace nebula
                     else
                     {
                         //去 k2 获取 对应的 schema
-                        k2graph::MySchemaGetRequest request{
-                            .collectionName = std::to_string(spaceID),
-                            .schemaName = std::to_string(edgeType),
-                            .schemaVersion = 1,
-                            // .prom = new std::promise<k2::GetSchemaResult>()};
-                            .prom = {}};
-
-                        auto result = request.prom.get_future();
-
-                        pushQ(k2graph::SchemaGetQ, std::move(request));
                         try
                         {
-                            // auto result = request.prom->get_future();
-                            // auto result = request.prom.get_future();
-                            // std::future<k2::GetSchemaResult> result = request.prom.get_future();
-                            auto schemaResult = result.get();
-                            auto status = schemaResult.status;
-                            if (!status.is2xxOK())
-                            { //获取schema时出错
-                                //构造错误信息,并返回
-                                // TODO：考虑多个顶点出错的情况，是直接返回，还是将正确的执行后返回
-                                std::cout << "code is: " << status.code << std::endl;
-                                std::cout << "获取schema时出错\n";
-
-                                cpp2::ResultCode rescode;
-                                rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
-                                failed_codes.emplace_back(rescode);
-                                responseCommon.set_failed_codes(failed_codes);
-                                resp_.set_result(responseCommon);
-                                // return resp_;
-                                promise_.setValue(std::move(resp_));
-                                return f;
-                            }
-                            schema = schemaResult.schema;
-                            SchemaTable[edgeType] = schemaResult.schema;
+                            schema = GetSchemaFromK2(spaceID, edgeType);
                         }
                         catch (...)
                         {
@@ -1417,56 +1109,73 @@ namespace nebula
                             return resp_;
                         }
                     }
-
                     auto fields = schema->fields;
-                    nebula::SchemaWriter schemaWriter;
-                    //跳过前面的固定字段 PartID-VertexID-EdgeType-Rank-VertexID
-                    for (auto field = fields.begin() + 5; field != fields.end(); field++)
+                    nebula::cpp2::Schema k2TagSchema;
+                    if (NebulaSchemaTable.find(edgeType) != NebulaSchemaTable.end())
                     {
-                        auto name = field->name.c_str();
-                        auto type = field->type;
-                        switch (type)
-                        { // VID类型对应INT64
-                        case k2::dto::FieldType::STRING:
-                            schemaWriter.appendCol(name, nebula::cpp2::SupportedType::STRING);
-                            break;
-                        case k2::dto::FieldType::INT16T:
-                        case k2::dto::FieldType::INT32T:
-                        case k2::dto::FieldType::INT64T:
-                            schemaWriter.appendCol(name, nebula::cpp2::SupportedType::INT);
-                            break;
-                        case k2::dto::FieldType::FLOAT:
-                            schemaWriter.appendCol(name, nebula::cpp2::SupportedType::FLOAT);
-                            break;
-                        case k2::dto::FieldType::DOUBLE:
-                            schemaWriter.appendCol(name, nebula::cpp2::SupportedType::DOUBLE);
-                            break;
-                        case k2::dto::FieldType::BOOL:
-                            schemaWriter.appendCol(name, nebula::cpp2::SupportedType::BOOL);
-                            break;
-                        default:
-                            //构造错误信息,并返回
-                            // TODO：考虑多个顶点出错的情况，是直接返回，还是将正确的执行后返回
-                            cpp2::ResultCode rescode;
-                            rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
-                            failed_codes.emplace_back(rescode);
-                            responseCommon.set_failed_codes(failed_codes);
-                            resp_.set_result(responseCommon);
-                            return resp_;
-                        }
+                        k2TagSchema = NebulaSchemaTable[edgeType];
                     }
-                    auto nebula_schema = std::make_shared<nebula::ResultSchemaProvider>(schemaWriter.moveSchema());
+                    else
+                    {
+                        nebula::SchemaWriter schemaWriter; //用于构造nebula中的schema
+                        for (auto field = fields.begin()+5; field != fields.end(); field++)
+                        {
+                            //跳过前面的固定字段 PartID-VertexID-EdgeType-Rank-VertexID
+                            auto name = field->name.c_str();
+                            auto type = field->type;
+
+                            switch (type)
+                            { // VID类型对应INT64
+                            case k2::dto::FieldType::STRING:
+                                schemaWriter.appendCol(name, nebula::cpp2::SupportedType::STRING);
+                                break;
+                            case k2::dto::FieldType::INT16T:
+                            case k2::dto::FieldType::INT32T:
+                            case k2::dto::FieldType::INT64T:
+                                schemaWriter.appendCol(name, nebula::cpp2::SupportedType::INT);
+                                break;
+                            case k2::dto::FieldType::FLOAT:
+                                schemaWriter.appendCol(name, nebula::cpp2::SupportedType::FLOAT);
+                                break;
+                            case k2::dto::FieldType::DOUBLE:
+                                schemaWriter.appendCol(name, nebula::cpp2::SupportedType::DOUBLE);
+                                break;
+                            case k2::dto::FieldType::BOOL:
+                                schemaWriter.appendCol(name, nebula::cpp2::SupportedType::BOOL);
+                                break;
+                            default:
+                                //构造错误信息,并返回
+                                // TODO：考虑多个顶点出错的情况，是直接返回，还是将正确的执行后返回
+                                cpp2::ResultCode rescode;
+                                rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                                failed_codes.emplace_back(rescode);
+                                responseCommon.set_failed_codes(failed_codes);
+                                resp_.set_result(responseCommon);
+                                return resp_;
+                            }
+                        }
+                        k2TagSchema = schemaWriter.moveSchema();
+                        NebulaSchemaTable[edgeType] = k2TagSchema;
+                    }
+                    auto nebula_schema = std::make_shared<nebula::ResultSchemaProvider>(k2TagSchema);
                     nebula::dataman::NebulaCodecImpl codec;
                     auto result = codec.decode(edge.get_props(), nebula_schema);
                     k2::dto::SKVRecord skvRecord(std::to_string(spaceID), schema);
-
+                    k2::dto::SKVRecord in_edge_skvRecord(std::to_string(spaceID), schema);
                     skvRecord.serializeNext<int16_t>(iter->first);
-                    skvRecord.serializeNext<int64_t>(edge.get_key().get_src());
+                    skvRecord.serializeNext<int64_t>(srcID);
                     skvRecord.serializeNext<int32_t>(edgeType);
                     skvRecord.serializeNext<int64_t>(edge.get_key().get_ranking());
-                    skvRecord.serializeNext<int64_t>(edge.get_key().get_dst());
+                    skvRecord.serializeNext<int64_t>(dstID);
+                    
+                    in_edge_skvRecord.serializeNext<int16_t>(iter->first);
+                    in_edge_skvRecord.serializeNext<int64_t>(dstID);
+                    in_edge_skvRecord.serializeNext<int32_t>(-edgeType);
+                    in_edge_skvRecord.serializeNext<int64_t>(edge.get_key().get_ranking());
+                    in_edge_skvRecord.serializeNext<int64_t>(srcID);
 
-                    for (auto field = fields.begin() + 5; field != fields.end(); field++)
+
+                    for (auto field = fields.begin()+5; field != fields.end(); field++)
                     {
                         auto name = field->name.c_str(); //获得name的std::string格式
                         auto type = field->type;
@@ -1480,24 +1189,31 @@ namespace nebula
                                 {
                                 case k2::dto::FieldType::STRING:
                                     skvRecord.serializeNext<k2::String>(boost::any_cast<std::string>(value->second));
+                                    in_edge_skvRecord.serializeNext<k2::String>(boost::any_cast<std::string>(value->second));
                                     break;
                                 case k2::dto::FieldType::INT16T:
                                     skvRecord.serializeNext<int16_t>(boost::any_cast<int16_t>(value->second));
+                                    in_edge_skvRecord.serializeNext<int16_t>(boost::any_cast<int16_t>(value->second));
                                     break;
                                 case k2::dto::FieldType::INT32T:
                                     skvRecord.serializeNext<int32_t>(boost::any_cast<int32_t>(value->second));
+                                    in_edge_skvRecord.serializeNext<int32_t>(boost::any_cast<int32_t>(value->second));
                                     break;
                                 case k2::dto::FieldType::INT64T:
                                     skvRecord.serializeNext<int64_t>(boost::any_cast<int32_t>(value->second));
+                                    in_edge_skvRecord.serializeNext<int64_t>(boost::any_cast<int32_t>(value->second));
                                     break;
                                 case k2::dto::FieldType::FLOAT:
                                     skvRecord.serializeNext<float>(boost::any_cast<float>(value->second));
+                                    in_edge_skvRecord.serializeNext<float>(boost::any_cast<float>(value->second));
                                     break;
                                 case k2::dto::FieldType::DOUBLE:
                                     skvRecord.serializeNext<double>(boost::any_cast<double>(value->second));
+                                    in_edge_skvRecord.serializeNext<double>(boost::any_cast<double>(value->second));
                                     break;
                                 case k2::dto::FieldType::BOOL:
                                     skvRecord.serializeNext<bool>(boost::any_cast<bool>(value->second));
+                                    in_edge_skvRecord.serializeNext<bool>(boost::any_cast<bool>(value->second));
                                     break;
                                 default:
                                     //构造错误信息,并返回
@@ -1514,6 +1230,7 @@ namespace nebula
                             {
                                 //未找到值序列化null
                                 skvRecord.serializeNull();
+                                in_edge_skvRecord.serializeNull();
                             }
                         }
                         catch (...)
@@ -1528,24 +1245,22 @@ namespace nebula
                         }
                     }
                     skvrecord_list.push_back(std::move(skvRecord));
+                    in_edge_skvrecord_list.push_back(std::move(in_edge_skvRecord));
                 }
             } // end of Construct skvrecord
 
-            // std::cout << "begin Txn\n";
-
+            usleep(90000);
             k2::K2TxnOptions options{};
             options.syncFinalize = true;
             k2graph::MyBeginTxnRequest qr{.opts = options,
-                                          //.prom = new std::promise<k2::dto::K23SI_MTR>(),
-                                          .prom = std::promise<k2::dto::K23SI_MTR>(),
+                                          .prom = {},
                                           .startTime = k2::Clock::now()};
+            auto BeginTxnQResult = qr.prom.get_future();
             pushQ(k2graph::BeginTxnQ, std::move(qr));
             k2::dto::K23SI_MTR mtr; //标识事务，之后的请求要用到
             try
             {
-                // auto result = qr.prom->get_future();
-                auto result = qr.prom.get_future();
-                mtr = result.get();
+                mtr = BeginTxnQResult.get().GetMtr();
             }
             catch (...)
             {
@@ -1558,97 +1273,88 @@ namespace nebula
                 return resp_;
             }
 
-            //将所有req push进队列
-            //  std::cout << "push queue\n";
+            //将所有VID->EdgeType写入系统预留Schema std::map<int64_t, std::vector<int32_t>> VID2EdgeType;
+            k2::dto::Schema Vertex2Edge;
+            Vertex2Edge.name = std::to_string(2);
+            Vertex2Edge.version = 1;
+            Vertex2Edge.fields = std::vector<k2::dto::SchemaField>{
+                {k2::dto::FieldType::INT64T, "VertexID", false, false},
+                {k2::dto::FieldType::INT32T, "EdgeType", false, false}
+            };
+            Vertex2Edge.setPartitionKeyFieldsByName(std::vector<k2::String>{"VertexID"});
+            Vertex2Edge.setRangeKeyFieldsByName(std::vector<k2::String>{"EdgeType"});
 
-            for (auto iter = skvrecord_list.begin(); iter != skvrecord_list.end(); iter++)
-            {
-                k2graph::MyWriteRequest write_request{
-                    .mtr = mtr,
-                    .record = std::move(*(iter)), //从上面的序列化得出
-                    //.prom = new std::promise<k2::WriteResult>()};
-                    .prom = std::promise<k2::WriteResult>()};
-                pushQ(k2graph::WriteRequestQ, std::move(write_request));
-                request_list.push_back(std::move(write_request));
-            }
-            bool isSucceed = true;
-
-            for (auto request = request_list.begin(); request != request_list.end(); request++)
-            {
-                try
-                {
-                    // auto result = request->prom->get_future();
-                    auto result = request->prom.get_future();
-                    auto WriteResult = result.get();
-                    auto status = WriteResult.status;
-                    if (!status.is2xxOK())
-                    {
-                        // std::cout << "L301\n";
-                        isSucceed = false;
-                        break;
-                    }
-                    // std::cout << "\nL304\n"
-                    //     << status << "\n";
+            for(auto item = VID2EdgeType.begin(); item != VID2EdgeType.end(); item++) {
+                auto VID = item->first;
+                set<int32_t> eIDs(item->second.begin(),item->second.end());
+                for(auto eID = eIDs.begin(); eID != eIDs.end(); eID++){
+                    k2::dto::SKVRecord VID2EID(std::to_string(spaceID), std::make_shared<k2::dto::Schema>(Vertex2Edge));
+                    VID2EID.serializeNext<int64_t>(VID);
+                    VID2EID.serializeNext<int32_t>(*eID);
+                    k2graph::MyWriteRequest write_request{
+                        .mtr = mtr,
+                        .record = std::move(VID2EID),
+                        .prom = std::promise<k2::WriteResult>()
+                    };
+                    pushQ(k2graph::WriteRequestQ, std::move(write_request));
                 }
-                catch (...)
+            }
+            //将所有req push进队列 TODO
+            auto batchIt = req.parts.begin();
+            int batchSize = batchIt->second.size();
+            for(int i=0;i<batchSize/2;i++){
+            k2graph::MyWriteRequest write_request{
+                .mtr = mtr,
+                .record = std::move(skvrecord_list[i]),
+                .prom = std::promise<k2::WriteResult>()
+            };
+            k2graph::MyWriteRequest write_request1{
+                .mtr = mtr,
+                .record = std::move(in_edge_skvrecord_list[i]),
+                .prom = std::promise<k2::WriteResult>()
+            };
+            auto WQResult = write_request.prom.get_future();
+            pushQ(k2graph::WriteRequestQ, std::move(write_request));
+            pushQ(k2graph::WriteRequestQ, std::move(write_request1));
+            try
+            {
+
+                auto WriteResult = WQResult.get();
+                auto status = WriteResult.status;
+                if (!status.is2xxOK())
                 {
                     isSucceed = false;
-                    break;
                 }
             }
-
+            catch (...)
+            {
+                isSucceed = false;
+            }
+            }
+            bool isendsucceed = true;
             k2graph::MyEndTxnRequest end_txn_req{
                 .mtr = mtr,
                 .shouldCommit = isSucceed,
                 //.prom = new std::promise<k2::EndResult>()};
                 .prom = std::promise<k2::EndResult>()};
-            // std::cout << "\nL304\n"
-            //  << end_txn_req.mtr << "\n"
-            //<< isSucceed << "\n";
+            auto EndQResult = end_txn_req.prom.get_future();
             pushQ(k2graph::EndTxnQ, std::move(end_txn_req));
-            int limit = 3; //设置尝试endtxn的最大次数
-            bool isendsucceed;
-
-            do
+            auto EndResult = EndQResult.get();
+            auto status = EndResult.status;
+            if (!status.is2xxOK())
             {
-                try
-                {
-                    // std::cout << "L320\n";
-                    // auto result = end_txn_req.prom->get_future();
-                    auto result = end_txn_req.prom.get_future();
-                    auto EndResult = result.get();
-                    auto status = EndResult.status;
-                    if (!status.is2xxOK())
-                    { //没有成功,重新push
-                        isendsucceed = false;
-                        pushQ(k2graph::EndTxnQ, std::move(end_txn_req));
-                    }
-                    else
-                    {
-                        // end事务成功，直接返回上面得到的写入的结果,即写入成功，返回成功，否则失败。
-                        isendsucceed = true;
-                    }
-                }
-                catch (...)
-                {
-                    isendsucceed = false;
-                    pushQ(k2graph::EndTxnQ, std::move(end_txn_req));
-                }
-                limit--;
-            } while ((limit > 0) && !isendsucceed); //还有剩余尝试次数，且失败时继续执行
-
+                isendsucceed = false;
+                std::cout << "end failed";
+            }
             cpp2::ResultCode rescode;
             if (!isendsucceed || !isSucceed)
             {
-                // std::cout << "L345\n\n\n\n";
                 rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
                 failed_codes.emplace_back(rescode);
-            }
-            else
-            {
-                // std::cout << "L349\n\n\n\n"
-                //          << "success"
-                //         << "\n\n\n\n";
+                responseCommon.set_failed_codes(failed_codes);
+                resp_.set_result(responseCommon);
+                promise_.setValue(std::move(resp_));
+                return f;
             }
 
             responseCommon.set_failed_codes(failed_codes);
@@ -1659,33 +1365,569 @@ namespace nebula
             // std::cout << "addedge end\n";
             return f;
         }
-        /*
-                folly::Future<cpp2::ExecResponse>
-                StorageServiceHandler::future_deleteVertices(const cpp2::DeleteVerticesRequest& req) {
-                    auto* processor = DeleteVerticesProcessor::instance(kvstore_,
-                                                                        schemaMan_,
-                                                                        indexMan_,
-                                                                        &delVertexQpsStat_,
-                                                                        &vertexCache_);
-                    RETURN_FUTURE(processor);
-                }
 
+            folly::Future<cpp2::ExecResponse>
+            StorageServiceHandler::future_deleteVertices(const cpp2::DeleteVerticesRequest& req) {
+                //删除是通过写操作实现
+                folly::Promise<cpp2::ExecResponse> promise_;
+                auto f = promise_.getFuture();
+                cpp2::ExecResponse resp_;
+                cpp2::ResponseCommon responseCommon;
+                std::vector<cpp2::ResultCode> failed_codes;
+                //开始一个事务
+                k2::K2TxnOptions options{};
+                options.syncFinalize = true;
+                k2graph::MyBeginTxnRequest qr{.opts = options,
+                                            .prom = {},
+                                            .startTime = k2::Clock::now()};
+                auto BeginTxnQResult = qr.prom.get_future();
+                pushQ(k2graph::BeginTxnQ, std::move(qr));
+                k2::dto::K23SI_MTR mtr; //标识事务，之后的请求要用到
+                try
+                {
+                    mtr = BeginTxnQResult.get().GetMtr();
+                }
+                catch (...)
+                {
+                    //构造错误信息,并返回
+                    cpp2::ResultCode rescode;
+                    rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                    failed_codes.emplace_back(rescode);
+                    responseCommon.set_failed_codes(failed_codes);
+                    resp_.set_result(responseCommon);
+                    promise_.setValue(std::move(resp_));
+                    return f;
+                }
+                //暂时只支持删除一个顶点
+                auto spaceID = req.space_id;
+                for (auto iter = req.parts.begin(); iter != req.parts.end(); iter++) {
+                    auto partID = iter->first;
+                    auto vIDs = iter->second;
+                    for(auto vID : vIDs) {
+                        auto vertexID = vID;
+                        k2graph::MyScanReadCreateRequest request{
+                            .collectionName = std::to_string(spaceID),
+                            .schemaName = std::to_string(2),//存储Vertex和EdgeType的对应关系的schema
+                            // .prom = new std::promise<k2graph::CreateScanReadResult>()};
+                            .prom = std::promise<k2graph::CreateScanReadResult>()
+                        };
+                        auto ScanReadResult = request.prom.get_future();
+                        std::shared_ptr<k2::Query> scan = nullptr;
+                        pushQ(k2graph::scanReadCreateTxQ, std::move(request));
+
+                        try {
+                            // auto scan_create_result = request.prom->get_future().get();
+                            auto scan_create_result = ScanReadResult.get();
+                            auto status = scan_create_result.status;
+                            if (!status.is2xxOK()) {
+                                std::cout << "l1419 createQuery 错误"
+                                        << "\n";
+                                cpp2::ResultCode rescode;
+                                rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                                failed_codes.emplace_back(rescode);
+                                responseCommon.set_failed_codes(failed_codes);
+                                resp_.set_result(responseCommon);
+                                promise_.setValue(std::move(resp_));
+                                return f;
+                            }
+                            scan = scan_create_result.query;
+                        }
+                        catch (...) {
+                            cpp2::ResultCode rescode;
+                            rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                            failed_codes.emplace_back(rescode);
+                            responseCommon.set_failed_codes(failed_codes);
+                            resp_.set_result(responseCommon);
+                            promise_.setValue(std::move(resp_));
+                            return f;
+                        }
+                        k2::dto::Schema Vertex2Edge;
+                        Vertex2Edge.name = std::to_string(2);
+                        Vertex2Edge.version = 1;
+                        Vertex2Edge.fields = std::vector<k2::dto::SchemaField>{
+                            {k2::dto::FieldType::INT64T, "VertexID", false, false},
+                            {k2::dto::FieldType::INT32T, "EdgeType", false, false}
+                        };
+                        Vertex2Edge.setPartitionKeyFieldsByName(std::vector<k2::String>{"VertexID"});
+                        Vertex2Edge.setRangeKeyFieldsByName(std::vector<k2::String>{"EdgeType"});
+                        k2::dto::SKVRecord startRecord(std::to_string(spaceID), std::make_shared<k2::dto::Schema>(Vertex2Edge));
+                        k2::dto::SKVRecord endRecord(std::to_string(spaceID), std::make_shared<k2::dto::Schema>(Vertex2Edge));
+                        startRecord.serializeNext<int64_t>(vertexID);
+                        endRecord.serializeNext<int64_t>(vertexID);
+                        scan->startScanRecord = std::move(startRecord);
+                        scan->endScanRecord = std::move(endRecord);
+                        scan->setLimit(-1);
+                        // range query
+                        k2graph::MyScanReadRequest scan_request{
+                            .mtr = mtr,
+                            .query = std::move(scan),
+                            // .prom = new std::promise<k2::QueryResult>()};
+                            .prom = std::promise<k2::QueryResult>()
+                        };
+                        auto readResult = scan_request.prom.get_future();
+                        pushQ(k2graph::scanReadTxQ, std::move(scan_request));
+                        k2::QueryResult scan_result = readResult.get();
+                        auto status = scan_result.status;
+                        std::vector<k2::dto::SKVRecord> vID2Edgetype(std::move(scan_result.records));
+
+                        
+                        k2graph::MyScanReadCreateRequest request1{
+                            .collectionName = std::to_string(spaceID),
+                            .schemaName = std::to_string(1),//存储Vertex和tag的对应关系的schema
+                            .prom = std::promise<k2graph::CreateScanReadResult>()
+                        };
+                        auto ScanReadResult1 = request1.prom.get_future();
+                        scan = nullptr;
+                        pushQ(k2graph::scanReadCreateTxQ, std::move(request1));
+
+                        try {
+                            // auto scan_create_result = request.prom->get_future().get();
+                            auto scan_create_result1 = ScanReadResult1.get();
+                            auto status1 = scan_create_result1.status;
+                            if (!status1.is2xxOK()) {
+                                std::cout << "l1484 createQuery 错误"
+                                        << "\n";
+                                cpp2::ResultCode rescode;
+                                rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                                failed_codes.emplace_back(rescode);
+                                responseCommon.set_failed_codes(failed_codes);
+                                resp_.set_result(responseCommon);
+                                promise_.setValue(std::move(resp_));
+                                return f;
+                            }
+                            scan = scan_create_result1.query;
+                        }
+                        catch (...) {
+                            cpp2::ResultCode rescode;
+                            rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                            failed_codes.emplace_back(rescode);
+                            responseCommon.set_failed_codes(failed_codes);
+                            resp_.set_result(responseCommon);
+                            promise_.setValue(std::move(resp_));
+                            return f;
+                        }
+                        k2::dto::Schema Vertex2Schema;
+                        Vertex2Schema.name = std::to_string(1);
+                        Vertex2Schema.version = 1;
+                        Vertex2Schema.fields = std::vector<k2::dto::SchemaField>{
+                            {k2::dto::FieldType::INT64T, "VertexID", false, false},
+                            {k2::dto::FieldType::INT32T, "TagID", false, false}
+                        };
+                        Vertex2Schema.setPartitionKeyFieldsByName(std::vector<k2::String>{"VertexID"});
+                        Vertex2Schema.setRangeKeyFieldsByName(std::vector<k2::String>{"TagID"});
+                        k2::dto::SKVRecord startRecord1(std::to_string(spaceID), std::make_shared<k2::dto::Schema>(Vertex2Schema));
+                        k2::dto::SKVRecord endRecord1(std::to_string(spaceID), std::make_shared<k2::dto::Schema>(Vertex2Schema));
+                        startRecord1.serializeNext<int64_t>(vertexID);
+                        endRecord1.serializeNext<int64_t>(vertexID);
+                        scan->startScanRecord = std::move(startRecord1);
+                        scan->endScanRecord = std::move(endRecord1);
+                        scan->setLimit(-1);
+                        // range query
+                        k2graph::MyScanReadRequest scan_request1{
+                            .mtr = mtr,
+                            .query = std::move(scan),
+                            // .prom = new std::promise<k2::QueryResult>()};
+                            .prom = std::promise<k2::QueryResult>()
+                        };
+                        auto readResult1 = scan_request1.prom.get_future();
+                        pushQ(k2graph::scanReadTxQ, std::move(scan_request1));
+                        k2::QueryResult scan_result1 = readResult1.get();
+                        auto status1 = scan_result1.status;
+                        std::vector<k2::dto::SKVRecord> vID2TagID(std::move(scan_result1.records));
+                        
+                        //构造需要删除的SKVRecord
+                        for (auto index = vID2TagID.begin(); index != vID2TagID.end(); index++) {
+                            auto record = std::move(*index);
+                        // for(auto record: vID2TagID) {
+                            //删除对应的顶点 和 该meta数据
+                            auto tagid = *(record.deserializeField<int32_t>("TagID"));
+                            std::shared_ptr<k2::dto::Schema>  vertex_schema = GetSchemaFromK2(spaceID, tagid);
+                            k2::dto::SKVRecord vertexRecord(std::to_string(spaceID), vertex_schema);
+                            vertexRecord.serializeNext<int16_t>(partID);
+                            vertexRecord.serializeNext<int64_t>(vertexID);
+                            vertexRecord.serializeNext<int32_t>(tagid);
+                            k2graph::MyWriteRequest delete_request{
+                                .mtr = mtr,
+                                .erase = true,
+                                .record = std::move(vertexRecord), //从上面的序列化得出
+                                .prom = std::promise<k2::WriteResult>()
+                            };
+                            auto DQResult = delete_request.prom.get_future();
+                            pushQ(k2graph::WriteRequestQ, std::move(delete_request));
+                            auto deleteResult = DQResult.get();
+                            auto status = deleteResult.status;
+                            k2graph::MyWriteRequest delete_request1{
+                                .mtr = mtr,
+                                .erase = true,
+                                .record = std::move(record), //从上面的序列化得出
+                                .prom = std::promise<k2::WriteResult>()
+                            };
+                            DQResult = delete_request1.prom.get_future();
+                            pushQ(k2graph::WriteRequestQ, std::move(delete_request1));
+                            deleteResult = DQResult.get();
+                            status = deleteResult.status;
+                        }
+                        for (auto index = vID2Edgetype.begin(); index != vID2Edgetype.end(); index++) {
+                            auto record = std::move(*index);
+                        // for(auto record: vID2Edgetype) {
+                            //删除查找到的边类型和该meta记录
+                            auto edgetype = *(record.deserializeField<int32_t>("EdgeType"));
+                            auto edge_schema = GetSchemaFromK2(spaceID, edgetype);
+                            //范围查询顶点关联的EdgeType的边
+                            k2graph::MyScanReadCreateRequest readEdges{
+                                .collectionName = std::to_string(spaceID),
+                                .schemaName = std::to_string(edgetype),//存储Vertex和EdgeType的对应关系的schema
+                                // .prom = new std::promise<k2graph::CreateScanReadResult>()};
+                                .prom = std::promise<k2graph::CreateScanReadResult>()
+                            };
+                            auto readEdgesResult = readEdges.prom.get_future();
+                            std::shared_ptr<k2::Query> scan = nullptr;
+                            pushQ(k2graph::scanReadCreateTxQ, std::move(readEdges));
+                            auto read_edge_result = readEdgesResult.get();
+                            auto readEdgestatus = read_edge_result.status;
+                            scan = read_edge_result.query;
+                            k2::dto::SKVRecord startRecord(std::to_string(spaceID), edge_schema);
+                            k2::dto::SKVRecord endRecord(std::to_string(spaceID), edge_schema);
+                            startRecord.serializeNext<int16_t>(partID);
+                            endRecord.serializeNext<int16_t>(partID);
+                            startRecord.serializeNext<int64_t>(vertexID);
+                            endRecord.serializeNext<int64_t>(vertexID);
+                            startRecord.serializeNext<int32_t>(edgetype);
+                            endRecord.serializeNext<int32_t>(edgetype);
+                            scan->startScanRecord = std::move(startRecord);
+                            scan->endScanRecord = std::move(endRecord);
+                            scan->setLimit(-1);
+                            k2graph::MyScanReadRequest scan_edge_request{
+                                .mtr = mtr,
+                                .query = std::move(scan),
+                                // .prom = new std::promise<k2::QueryResult>()};
+                                .prom = std::promise<k2::QueryResult>()
+                            };
+                            auto readResult = scan_edge_request.prom.get_future();
+                            pushQ(k2graph::scanReadTxQ, std::move(scan_edge_request));
+                            k2::QueryResult scan_result = readResult.get();
+                            auto scanStatus = scan_result.status;
+                            std::vector<k2::dto::SKVRecord> edges(std::move(scan_result.records));
+                            for (auto index = edges.begin(); index != edges.end(); index++) {
+                                auto edge = std::move(*index);
+                            // for(auto edge: edges) {
+                                //删除相应的边和对应的相反的边
+                                int64_t dstID = *(edge.deserializeField<int64_t>("SecondVertexID"));
+                                int64_t rank = *(edge.deserializeField<int64_t>("Rank"));
+                                //构造相反的边
+                                k2::dto::SKVRecord reverse_edge(std::to_string(spaceID), edge_schema);
+                                reverse_edge.serializeNext<int16_t>(partID);
+                                reverse_edge.serializeNext<int64_t>(dstID);
+                                reverse_edge.serializeNext<int32_t>(-edgetype);
+                                reverse_edge.serializeNext<int64_t>(rank);
+                                reverse_edge.serializeNext<int64_t>(vertexID);
+                                k2graph::MyWriteRequest delete_inedge_request{
+                                    .mtr = mtr,
+                                    .erase = true,
+                                    .record = std::move(edge), //从上面的序列化得出
+                                    .prom = std::promise<k2::WriteResult>()
+                                };
+                                k2graph::MyWriteRequest delete_outedge_request{
+                                    .mtr = mtr,
+                                    .erase = true,
+                                    .record = std::move(reverse_edge), //从上面的序列化得出
+                                    .prom = std::promise<k2::WriteResult>()
+                                };
+                                auto DQResult1 = delete_inedge_request.prom.get_future();
+                                pushQ(k2graph::WriteRequestQ, std::move(delete_inedge_request));
+                                auto DQResult2 = delete_outedge_request.prom.get_future();
+                                pushQ(k2graph::WriteRequestQ, std::move(delete_outedge_request));
+                                auto deleteResult1 = DQResult1.get();
+                                status = deleteResult1.status;
+                                auto deleteResult2 = DQResult2.get();
+                                status = deleteResult2.status;
+                            }
+                            k2graph::MyWriteRequest delete_request1{
+                                .mtr = mtr,
+                                .erase = true,
+                                .record = std::move(record), //从上面的序列化得出
+                                .prom = std::promise<k2::WriteResult>()
+                            };
+                            auto DQResult = delete_request1.prom.get_future();
+                            pushQ(k2graph::WriteRequestQ, std::move(delete_request1));
+                            auto deleteResult = DQResult.get();
+                            status = deleteResult.status;
+                        }
+                    }
+                }
+                k2graph::MyEndTxnRequest end_txn_req{
+                    .mtr = mtr,
+                    .shouldCommit = true,
+                    //.prom = new std::promise<k2::EndResult>()
+                    .prom = std::promise<k2::EndResult>()};
+                auto EndQResult = end_txn_req.prom.get_future();
+                pushQ(k2graph::EndTxnQ, std::move(end_txn_req));
+                auto EndResult = EndQResult.get();
+                auto Endstatus = EndResult.status;
+                responseCommon.set_failed_codes(failed_codes);
+                responseCommon.set_latency_in_us(10);
+                resp_.set_result(responseCommon);
+                promise_.setValue(std::move(resp_));
+                return f;
+            }
+       /*
                 folly::Future<cpp2::ExecResponse>
                 StorageServiceHandler::future_deleteEdges(const cpp2::DeleteEdgesRequest& req) {
                     auto* processor = DeleteEdgesProcessor::instance(kvstore_, schemaMan_, indexMan_);
                     RETURN_FUTURE(processor);
                 }
 */
-        // folly::Future<cpp2::UpdateResponse>
-        // StorageServiceHandler::future_updateVertex(const cpp2::UpdateVertexRequest& req) {
-        // auto* processor = UpdateVertexProcessor::instance(kvstore_,
-        //                                                   schemaMan_,
-        //                                                   indexMan_,
-        //                                                   &updateVertexQpsStat_,
-        //                                                   &vertexCache_);
-        // RETURN_FUTURE(processor);
-        //先根据
-        // }
+        folly::Future<cpp2::UpdateResponse>
+        StorageServiceHandler::future_updateVertex(const cpp2::UpdateVertexRequest& req) {
+            folly::Promise<cpp2::UpdateResponse> promise_;
+            auto f = promise_.getFuture();
+            cpp2::UpdateResponse resp_;
+            cpp2::ResponseCommon responseCommon;
+            std::vector<cpp2::ResultCode> failed_codes;
+            // bool isSucceed = true;
+
+            std::vector<uint32_t> fieldsForUpdate;
+            auto spaceID = req.space_id;
+            //先考虑一个update请求只有一个更新请求,也就是只针对一个顶点的某个tag的属性进行修改
+            auto vertexID = req.vertex_id;
+            auto partID   = req.part_id;
+            std::string target_name;
+            //开始一个事务
+            k2::K2TxnOptions options{};
+            options.syncFinalize = true;
+            k2graph::MyBeginTxnRequest qr{.opts = options,
+                                          //.prom = new std::promise<k2::dto::K23SI_MTR>(),
+                                          .prom = {},
+                                          .startTime = k2::Clock::now()};
+            auto BeginTxnResult = qr.prom.get_future();
+            pushQ(k2graph::BeginTxnQ, std::move(qr));
+            k2::dto::K23SI_MTR mtr; //标识事务，之后的请求要用到
+            try
+            {
+                mtr = BeginTxnResult.get().GetMtr();
+            }
+            catch (...)
+            {
+                //构造错误信息,并返回
+                cpp2::ResultCode rescode;
+                rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                failed_codes.emplace_back(rescode);
+                responseCommon.set_failed_codes(failed_codes);
+                resp_.set_result(responseCommon);
+                promise_.setValue(std::move(resp_));
+                return f;
+            }
+            std::cout << "begintxn succeed\n";
+            for(auto iter = req.update_items.begin(); iter != req.update_items.end(); iter++) {
+                //获得tagID
+                auto tagName = iter->name;
+                target_name = boost::any_cast<std::string>(iter->prop);
+                k2::dto::Schema TagSchema1;
+                TagSchema1.name = std::to_string(0);
+                TagSchema1.version = 1;
+                TagSchema1.fields = std::vector<k2::dto::SchemaField>{
+                    {k2::dto::FieldType::INT64T, "SpaceID", false, false},
+                    {k2::dto::FieldType::STRING, "TagName", false, false},
+                    {k2::dto::FieldType::INT32T, "TagID", false, false}
+                };
+                TagSchema1.setPartitionKeyFieldsByName(std::vector<k2::String>{"SpaceID"});
+                TagSchema1.setRangeKeyFieldsByName(std::vector<k2::String>{"TagName"});
+                k2::dto::SKVRecord tag_record(std::to_string(spaceID), std::make_shared<k2::dto::Schema>(TagSchema1));
+                tag_record.serializeNext<int64_t>(spaceID);
+                tag_record.serializeNext<k2::String>(boost::any_cast<std::string>(tagName));
+                
+                //将prop转换成chogori的fieldsForUpdate形式，就是记录位置
+                k2graph::MyReadRequest read_request{
+                            .mtr = mtr,
+                            .record = k2::dto::SKVRecord(),
+                            .key = std::move(tag_record.getKey()),
+                            .collectionName = std::to_string(spaceID),
+                            //  .prom = new std::promise<k2::ReadResult<k2::dto::SKVRecord>>()};
+                            .prom = std::promise<k2::ReadResult<k2::dto::SKVRecord>>()
+                };
+                auto ReadResult = read_request.prom.get_future();
+                pushQ(k2graph::readTxQ, std::move(read_request));
+                auto MyReadResult = ReadResult.get();
+                auto status = MyReadResult.status;
+                if (!status.is2xxOK()) {
+                    cpp2::ResultCode rescode;
+                    std::cout << status << "\n";
+                    rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                    failed_codes.emplace_back(rescode);
+                    responseCommon.set_failed_codes(failed_codes);
+                    resp_.set_result(responseCommon);
+                    promise_.setValue(std::move(resp_));
+                    return f;
+                }
+                std::cout << "read TagID succeed\n";
+                auto res = MyReadResult.value.deserializeField<int32_t>("TagID");
+                auto tagID = *res;
+                std::cout << tagID << std::endl;
+                //获取Tag
+                std::shared_ptr<k2::dto::Schema> schema;
+
+                if (SchemaTable.find(tagID) != SchemaTable.end())
+                {
+                    schema = SchemaTable[tagID];
+                }
+                else
+                {
+                    schema = GetSchemaFromK2(spaceID, tagID);
+                }
+                //获得原顶点的skvrecord
+                k2::dto::SKVRecord vertex_record(std::to_string(spaceID), schema);
+                vertex_record.serializeNext<int16_t>(partID);
+                vertex_record.serializeNext<int64_t>(vertexID);
+                vertex_record.serializeNext<int32_t>(tagID);
+                k2graph::MyReadRequest vertex_read_request{
+                                .mtr = mtr,
+                                .record = k2::dto::SKVRecord(),
+                                .key = std::move(vertex_record.getKey()),
+                                .collectionName = std::to_string(spaceID),
+                                //  .prom = new std::promise<k2::ReadResult<k2::dto::SKVRecord>>()};
+                                .prom = std::promise<k2::ReadResult<k2::dto::SKVRecord>>()};
+                
+                auto vertex_ReadResult = vertex_read_request.prom.get_future();
+                pushQ(k2graph::readTxQ, std::move(vertex_read_request));
+                std::cout << "l1497 read oldrecord success" << std::endl;
+                //先假设正常读取 TODO
+                auto origin_skvRecord = std::move(vertex_ReadResult.get().value);
+                //将prop转换成chogori的fieldsForUpdate形式，就是记录位置
+                //就说查找prop的名字然后查找其在schema中的位置
+                //value是要更换的值
+                //其余值不变
+                //value直接替换record中的部分
+                k2::dto::SKVRecord new_vertex_record(std::to_string(spaceID), schema);
+                // auto exp = Expression::decode(iter->get_value()).value();
+                // if(auto v = Expression::asInt(iter->get_value())){
+                //     std::cout << v << std::endl;
+                    
+                // }
+                Getters getters;
+                auto value = Expression::decode(iter->get_value()).value()->eval(getters).value();
+                // std::cout << myvalue << std::endl;
+                // auto value = iter->get_value();
+                auto fields = schema->fields;
+                std::cout << "l1507" << std::endl;
+                int i = 0;
+                for (auto field = fields.begin(); field != fields.end(); field++) {
+                    auto name = field->name.c_str();
+                    std::cout << "target name: "<<target_name << std::endl;
+                    std::cout << "name: "<<name << std::endl;
+                    std::cout << "type: "<<field->type << std::endl;
+                    auto type = field->type;
+                    if(name == target_name) {
+                        fieldsForUpdate.push_back(i);
+                    }
+                    switch (type) {
+                        case k2::dto::FieldType::STRING:
+                                    if(name == target_name) {
+                                        new_vertex_record.serializeNext<k2::String>(boost::any_cast<std::string>(value));
+                                    }
+                                    else{
+                                        auto temp = origin_skvRecord.template deserializeField<k2::String>(name);
+                                        new_vertex_record.serializeNext<k2::String>(*temp);
+                                    }
+                        break;
+                        case k2::dto::FieldType::INT16T:
+                                    if(name == target_name) {
+                                        new_vertex_record.serializeNext<int16_t>(boost::any_cast<int16_t>(value));
+                                    }
+                                    else{
+                                        auto temp = origin_skvRecord.deserializeField<int16_t>(name);
+                                        new_vertex_record.serializeNext<int16_t>(*temp);
+                                    }
+                        break;
+                        case k2::dto::FieldType::INT32T:
+                                    if(name == target_name) {
+                                        new_vertex_record.serializeNext<int32_t>(boost::any_cast<int32_t>(value));
+                                    }
+                                    else{
+                                        auto temp = origin_skvRecord.deserializeField<int32_t>(name);
+                                        new_vertex_record.serializeNext<int32_t>(*temp);
+                                    }
+                        break;
+                        case k2::dto::FieldType::INT64T:
+                                    if(name == target_name) {
+                                        new_vertex_record.serializeNext<int64_t>(boost::get<int64_t>(value));
+                                    }
+                                    else{
+                                        auto temp = origin_skvRecord.deserializeField<int64_t>(name);
+                                        new_vertex_record.serializeNext<int64_t>(*temp);
+                                    }
+                        break;
+                        case k2::dto::FieldType::FLOAT:
+                                    if(name == target_name) {
+                                        new_vertex_record.serializeNext<float>(boost::any_cast<float>(value));
+                                    }
+                                    else{
+                                        auto temp = origin_skvRecord.deserializeField<float>(name);
+                                        new_vertex_record.serializeNext<float>(*temp);
+                                    }
+                        break;
+                        case k2::dto::FieldType::DOUBLE:
+                                    if(name == target_name) {
+                                        new_vertex_record.serializeNext<double>(boost::get<double>(value));
+                                    }
+                                    else{
+                                        auto temp = origin_skvRecord.deserializeField<double>(name);
+                                        new_vertex_record.serializeNext<double>(*temp);
+                                    }
+                        break;
+                        case k2::dto::FieldType::BOOL:
+                                    if(name == target_name) {
+                                        new_vertex_record.serializeNext<bool>(boost::get<bool>(value));
+                                    }
+                                    else{
+                                        auto temp = origin_skvRecord.deserializeField<bool>(name);
+                                        new_vertex_record.serializeNext<bool>(*temp);
+                                    }
+                        break;
+                        default:
+                                    //构造错误信息,并返回
+                                    // TODO：考虑多个顶点出错的情况，是直接返回，还是将正确的执行后返回
+                                    cpp2::ResultCode rescode;
+                                    rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                                    failed_codes.emplace_back(rescode);
+                                    responseCommon.set_failed_codes(failed_codes);
+                                    resp_.set_result(responseCommon);
+                                    promise_.setValue(std::move(resp_));
+                                    return f;
+                    }
+                    i++;
+                }
+                std::cout << "construct newrecords succeed\n";
+                k2graph::MyUpdateRequest update_request{
+                                .mtr = mtr,
+                                .record = std::move(new_vertex_record),
+                                .fieldsForUpdate = std::move(fieldsForUpdate),
+                                .key = std::move(new_vertex_record.getKey()),
+                                .prom = std::promise<k2::PartialUpdateResult>()
+                };
+                auto updateResult = update_request.prom.get_future();
+                k2graph::pushQ(k2graph::UpdateTxQ, std::move(update_request));
+                if(!updateResult.get().status.is2xxOK()){
+                    cpp2::ResultCode rescode;
+                    rescode.set_code(cpp2::ErrorCode::E_UNKNOWN);
+                    failed_codes.emplace_back(rescode);
+                    responseCommon.set_failed_codes(failed_codes);
+                    resp_.set_result(responseCommon);
+                    promise_.setValue(std::move(resp_));
+                    return f;
+                }
+                std::cout << "update succeed\n";
+            }
+            k2graph::MyEndTxnRequest end_txn_req{
+                .mtr = mtr,
+                .shouldCommit = true,
+                //.prom = new std::promise<k2::EndResult>()};
+                .prom = std::promise<k2::EndResult>()};
+            auto EndTxnQResult = end_txn_req.prom.get_future();
+            pushQ(k2graph::EndTxnQ, std::move(end_txn_req));
+            promise_.setValue(std::move(resp_));
+            return f;
+
+        }
         /*
                         folly::Future<cpp2::UpdateResponse>
                         StorageServiceHandler::future_updateEdge(const cpp2::UpdateEdgeRequest& req) {

@@ -29,6 +29,7 @@ class StorageServiceHandler final : public cpp2::StorageServiceSvIf {
     FRIEND_TEST(StorageServiceHandlerTest, FutureAddVerticesTest);
 
 public:
+/*
     StorageServiceHandler(kvstore::KVStore* kvstore,
                           meta::SchemaManager* schemaMan,
                           meta::IndexManager* indexMan,
@@ -68,15 +69,21 @@ public:
         lookupVerticesQpsStat_ = stats::Stats("storage", "lookup_vertices");
         lookupEdgesQpsStat_ = stats::Stats("storage", "lookup_edges");
     }
-
+*/
+    
+    StorageServiceHandler(){
+        std::cout<<"Storage service handler\n";
+    };
+    
     folly::Future<cpp2::QueryResponse>
     future_getBound(const cpp2::GetNeighborsRequest& req) override;
-
+/*
     folly::Future<cpp2::QueryStatsResponse>
     future_boundStats(const cpp2::GetNeighborsRequest& req) override;
-
+*/
     folly::Future<cpp2::QueryResponse>
-    future_getProps(const cpp2::VertexPropRequest& req) override;
+       future_getProps(const cpp2::VertexPropRequest& req) override;
+    
 
     folly::Future<cpp2::EdgePropResponse>
     future_getEdgeProps(const cpp2::EdgePropRequest& req) override;
@@ -86,16 +93,17 @@ public:
 
     folly::Future<cpp2::ExecResponse>
     future_addEdges(const cpp2::AddEdgesRequest& req) override;
-
+/*
     folly::Future<cpp2::ExecResponse>
     future_deleteEdges(const cpp2::DeleteEdgesRequest& req) override;
-
+*/
     folly::Future<cpp2::ExecResponse>
     future_deleteVertices(const cpp2::DeleteVerticesRequest& req) override;
 
     folly::Future<cpp2::UpdateResponse>
     future_updateVertex(const cpp2::UpdateVertexRequest& req) override;
 
+/*
     folly::Future<cpp2::UpdateResponse>
     future_updateEdge(const cpp2::UpdateEdgeRequest& req) override;
 
@@ -156,15 +164,15 @@ public:
 
     folly::Future<cpp2::LookUpIndexResp>
     future_lookUpIndex(const cpp2::LookUpIndexRequest& req) override;
-
+*/
 private:
-    kvstore::KVStore* kvstore_{nullptr};
-    meta::SchemaManager* schemaMan_{nullptr};
-    meta::IndexManager* indexMan_{nullptr};
-    meta::MetaClient* metaClient_{nullptr};
-    VertexCache vertexCache_;
-    std::shared_ptr<folly::Executor> readerPool_;
-
+  //  kvstore::KVStore* kvstore_{nullptr};
+  //  meta::SchemaManager* schemaMan_{nullptr};
+ //   meta::IndexManager* indexMan_{nullptr};
+ //   meta::MetaClient* metaClient_{nullptr};
+ //   VertexCache vertexCache_;
+//    std::shared_ptr<folly::Executor> readerPool_;
+/*
     stats::Stats getBoundQpsStat_;
     stats::Stats boundStatsQpsStat_;
     stats::Stats vertexPropsQpsStat_;
@@ -180,6 +188,7 @@ private:
     stats::Stats putKvQpsStat_;
     stats::Stats lookupVerticesQpsStat_;
     stats::Stats lookupEdgesQpsStat_;
+   */ 
 };
 
 }  // namespace storage
